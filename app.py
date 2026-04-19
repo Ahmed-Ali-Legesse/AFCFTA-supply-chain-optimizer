@@ -68,7 +68,17 @@ transit_days = {
 }
 
 # --- DYNAMIC DEMAND: THE GRAVITY MODEL ---
-gdp_billions = {'Kenya': 136, 'Tanzania': 88, 'Ethiopia': 160, 'Uganda': 66, 'Rwanda': 16}
+# The Birr float destroyed Ethiopia's USD-denominated purchasing power
+ethiopia_gdp = 150 if ethiopia_fx_regime == "Pre-Float (2024 Pegged GDP)" else 109
+
+gdp_billions = {
+    'Kenya': 136, 
+    'Tanzania': 87, 
+    'Ethiopia': ethiopia_gdp, 
+    'Uganda': 66, 
+    'Rwanda': 16
+}
+
 distance_km = {
     'Kenya':    {'Kenya': 1, 'Tanzania': 800, 'Ethiopia': 1160, 'Uganda': 650, 'Rwanda': 1150},
     'Tanzania': {'Kenya': 800, 'Tanzania': 1, 'Ethiopia': 1750, 'Uganda': 1000, 'Rwanda': 1150},
@@ -207,6 +217,12 @@ st.markdown("Macro-Stochastic MILP balancing Gravity Demand, Volatility, FX Cons
 st.sidebar.header("Stress Test Parameters")
 volatility = st.sidebar.slider("Logistics Volatility Index (\u03C3)", 0.0, 0.50, 0.15, 0.05)
 iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=50, max_value=1000, value=250, step=50)
+
+st.sidebar.header("Macroeconomic Policy Shocks")
+ethiopia_fx_regime = st.sidebar.radio(
+    "Ethiopia FX Regime (Birr Float Impact)",
+    ("Pre-Float (2024 Pegged GDP)", "Post-Float (2025 Market GDP)")
+)
 
 if st.sidebar.button("Run Capital Allocation Engine"):
     outcomes = run_stochastic_optimizer(volatility, iterations)
