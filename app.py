@@ -129,7 +129,7 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         gc.collect()
         
         # UX Update
-        if step % 5 == 0 or step == iterations - 1:
+        if step % 20 == 0 or step == iterations - 1:
             progress_bar.progress((step + 1) / iterations)
             status_text.text(f"Computing macroeconomic vector {step + 1} of {iterations}...")
             
