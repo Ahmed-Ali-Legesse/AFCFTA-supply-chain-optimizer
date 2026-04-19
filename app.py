@@ -66,7 +66,7 @@ def run_stochastic_optimizer(volatility_dial, iterations=100):
                     risk_adjusted_cost = (sim_freight + tariff) / fx_lambda[i]
                     total_variable_cost += risk_adjusted_cost * X[(i, j, t)]
                     
-        model += pulp.lpSum([fixed_costs[i] * Y[i] for i in hubs]) + total_variable_cost
+        model += pulp.lpSum([(fixed_costs[i] * 1000)* Y[i] for i in hubs]) + total_variable_cost
         
         for j in markets:
             for t in years:
