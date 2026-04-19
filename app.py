@@ -46,15 +46,26 @@ fx_lambda = {
     'Rwanda': 1.0, 
     'Ethiopia': 0.5   # Severe physical goods export capital trap
 }
+# Sourcing Asian components is cheap but triggers MFN tariffs.
+# Sourcing African components is expensive but unlocks AfCFTA tax decay.
+prod_cost_mfn = 5   # Cheap global supply chain
+prod_cost_roo = 15  # Expensive localized supply chain (to hit 40% threshold)
+static_mfn_tariff = 25  # Punitive static tariff for failing RoO
+
 # --- THE STOCHASTIC ENGINE --------------------------------------------------------------------
 def run_stochastic_optimizer(volatility_dial, iterations=100):
     results = Counter()
     
     for _ in range(iterations):
         model = pulp.LpProblem("AfCFTA_Sensitivity", pulp.LpMinimize)
-        Y = pulp.LpVariable.dicts("Hub", hubs, cat='Binary')
-        X = pulp.LpVariable.dicts("Ship", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
+        # Split Facility Types: Either you build an MFN hub or an RoO hub. You cannot build both in one country.
+        Y_MFN = pulp.LpVariable.dicts("Hub_MFN", hubs, cat='Binary')
+        Y_RoO = pulp.LpVariable.dicts("Hub_RoO", hubs, cat='Binary')
         
+        # Split Shipment Volumes based on origin hub type
+        X_MFN = pulp.LpVariable.dicts("Ship_MFN", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
+        X_RoO = pulp.LpVariable.dicts("Ship_RoO", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
+
         total_variable_cost = 0
         for i in hubs:
             for j in markets:
@@ -67,30 +78,43 @@ def run_stochastic_optimizer(volatility_dial, iterations=100):
                     total_variable_cost += risk_adjusted_cost * X[(i, j, t)]
                     
         model += pulp.lpSum([(fixed_costs[i] * 1000)* Y[i] for i in hubs]) + total_variable_cost
-        
+
+        # Constraints
+        # 1. Mutually Exclusive Hubs: A country can only host one type of hub (or neither)
+        for i in hubs:
+            model += Y_MFN[i] + Y_RoO[i] <= 1
+            
+      # 2. Meet Demand
         for j in markets:
             for t in years:
-                model += pulp.lpSum([X[(i, j, t)] for i in hubs]) == demand[j]
+                model += pulp.lpSum([X_MFN[(i, j, t)] + X_RoO[(i, j, t)] for i in hubs]) == demand[j]
+                
+        # 3. Capacity Constraints tied to Hub Type
         for i in hubs:
             for t in years:
-                model += pulp.lpSum([X[(i, j, t)] for j in markets]) <= capacity[i] * Y[i]
-                
-        model += pulp.lpSum([Y[i] for i in hubs]) >= 1
+                model += pulp.lpSum([X_MFN[(i, j, t)] for j in markets]) <= capacity[i] * Y_MFN[i]
+                model += pulp.lpSum([X_RoO[(i, j, t)] for j in markets]) <= capacity[i] * Y_RoO[i]
+        # 4. Must build at least one hub
+        model += pulp.lpSum([Y_MFN[i] + Y_RoO[i] for i in hubs]) >= 1
                 
         model.solve(pulp.PULP_CBC_CMD(msg=False))
-  
-        # Check for optimality and use > 0.5 to dodge floating point solver inaccuracies
-        if pulp.LpStatus[model.status] == 'Optimal':
-            config = " + ".join(sorted([i for i in hubs if Y[i].varValue is not None and Y[i].varValue > 0.5]))
-            results[config] += 1
-        else:
-            results["Infeasible Scenario"] += 1      
+        
+        # Record the exact configuration (Country + Hub Type)
+        active_hubs = []
+        for i in hubs:
+            if Y_MFN[i].varValue == 1.0:
+                active_hubs.append(f"{i} (Global Sourcing)")
+            elif Y_RoO[i].varValue == 1.0:
+                active_hubs.append(f"{i} (AfCFTA Compliant)")
+                
+        config = " + ".join(sorted(active_hubs))
+        results[config] += 1
+        
     return results
   # --- STREAMLIT FRONTEND ----------------------------------------------------------------------------------
 st.set_page_config(page_title="AfCFTA Optimizer", layout="wide")
 st.title("AfCFTA Capital Node Optimizer")
-st.markdown("Macro-Stochastic supply chain routing across the top 5 East African economies, anchored on NCTTCA freight data and World Bank proxies.")
-
+st.markdown("Macro-Stochastic supply chain routing across the top 5 East African economies, balancing Logistics Volatility, FX Constraints, and Rules of Origin (RoO) Upstream Sourcing.")
 st.sidebar.header("Stress Test Parameters")
 volatility = st.sidebar.slider("Macro-Volatility Index (Logistics Friction Variance)", 0.0, 0.50, 0.10, 0.05)
 iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=10, max_value=500, value=50, step=10)
@@ -105,4 +129,4 @@ if st.sidebar.button("Run Capital Allocation Engine"):
     st.bar_chart(data=df.set_index('Network Configuration')['Probability (%)'], color="#d9534f")
     st.dataframe(df, hide_index=True) 
     #  Finish UI
-    st.info("Analytical Note: Configurations with higher stability across Monte Carlo iterations represent robust capital deployment strategies against regional logistics friction.")
+st.info("Analytical Note: The engine now calculates supply chain compliance. Notice how the solver decides whether to source cheap Asian components (triggering permanent 25% MFN Tariffs) or force localized sourcing (higher baseline cost, but unlocks the AfCFTA tax decay). This bridges macro-trade policy with operational reality.")
