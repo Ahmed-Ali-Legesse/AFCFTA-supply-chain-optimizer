@@ -97,7 +97,7 @@ distance_km = {
 
 def calculate_gravity_demand(origin, destination):
     if origin == destination:
-        return gdp_billions[destination] * 2  
+        return gdp_billions[destination]
     # Calculate average corridor friction between the two countries
     corridor_friction = (lpi_friction[origin] + lpi_friction[destination]) / 2
     # Effective distance penalizes poor infrastructure
@@ -162,12 +162,12 @@ def run_stochastic_optimizer(volatility_dial, iterations):
                     
                     # 1. Global Sourcing / MFN Path
                     tariff_mfn = 0 if i == j else static_mfn_tariff
-                    cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[i]
+                    cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[j]
                     total_variable_cost += cost_mfn * X_MFN[(i, j, t)]
                     
                     # 2. AfCFTA Compliant / RoO Path
                     tariff_roo = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
-                    cost_roo = (sim_freight + holding_cost + tariff_roo + cost_roo_prod) / fx_lambda[i]
+                    cost_roo = (sim_freight + holding_cost + tariff_roo + cost_roo_prod) / fx_lambda[j]
                     total_variable_cost += cost_roo * X_RoO[(i, j, t)]
                     
                     
