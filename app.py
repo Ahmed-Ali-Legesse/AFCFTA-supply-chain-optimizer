@@ -143,8 +143,8 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         total_variable_cost = 0
         for i in hubs:
     # Multiply the base production cost by the World Bank Bureaucratic Time Tax
-    cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False) * (1 + wb_bureaucratic_tax[i])
-    cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True) * (1 + wb_bureaucratic_tax[i])
+            cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False) * (1 + wb_bureaucratic_tax[i])
+            cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True) * (1 + wb_bureaucratic_tax[i])
             
             for j in markets:
                 for t in years:
