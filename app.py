@@ -145,8 +145,8 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         X_MFN = pulp.LpVariable.dicts("Ship_MFN", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
         X_RoO = pulp.LpVariable.dicts("Ship_RoO", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
 
-        # Force the engine to scale abstract proxy demand up to industrial reality
-        volume_multiplier = 10000
+        # 1 Unit in the solver represents a TEU container of 1,000 items
+        container_volume = 1000
         
         total_variable_cost = 0
         for i in hubs:
@@ -166,17 +166,17 @@ def run_stochastic_optimizer(volatility_dial, iterations):
                     tariff_mfn = 0 if i == j else static_mfn_tariff
                     cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[j]
                    # MULTIPLY BY VOLUME SCALER
-                    total_variable_cost += (cost_mfn * volume_multiplier) * X_MFN[(i, j, t)]
+                    total_variable_cost += (cost_mfn * container_volume) * X_MFN[(i, j, t)]
                     
                     # 2. AfCFTA Compliant / RoO Path
                     tariff_roo = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
                     cost_roo = (sim_freight + holding_cost + tariff_roo + cost_roo_prod) / fx_lambda[j]
-                    total_variable_cost += (cost_roo * volume_multiplier) * X_RoO[(i, j, t)]
+                    total_variable_cost += (cost_roo * container_volume) * X_RoO[(i, j, t)]
+                # OBJECTIVE FUNCTION PARITY:
+        # Multiply annualized CapEx by 1,000,000 to convert from abstract "Millions" to Absolute Dollars
+        model += pulp.lpSum([(annualized_capex[i] * 1_000_000) * (Y_MFN[i] + Y_RoO[i]) for i in hubs]) + total_variable_cost    
                     
-                    
-       # NEW: Objective function uses Amortized CapEx instead of raw Fixed Costs
-        model += pulp.lpSum([(annualized_capex[i] * 1000) * (Y_MFN[i] + Y_RoO[i]) for i in hubs]) + total_variable_cost
-        
+      
         # Constraints
         for i in hubs:
             model += Y_MFN[i] + Y_RoO[i] <= 1  # Mutually exclusive hub types
