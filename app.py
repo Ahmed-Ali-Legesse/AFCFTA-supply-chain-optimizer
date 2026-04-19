@@ -123,7 +123,7 @@ st.title("AfCFTA Capital Node Optimizer")
 st.markdown("Macro-Stochastic supply chain routing across the top 5 East African economies, balancing Logistics Volatility, FX Constraints, and Rules of Origin (RoO).")
 st.sidebar.header("Stress Test Parameters")
 volatility = st.sidebar.slider("Macro-Volatility Index (Logistics Friction Variance)", 0.0, 0.50, 0.10, 0.05)
-iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=10, max_value=500, value=50, step=10)
+iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=100, max_value=5000, value=1000, step=100)
 if st.sidebar.button("Run Capital Allocation Engine"):
     with st.spinner("Solving multi-year MILP constraints under stochastic variance..."):
         outcomes = run_stochastic_optimizer(volatility, iterations)      
