@@ -20,10 +20,10 @@ fixed_costs = {
 # D_j: Demand Weighting (Proxy: World Bank Nominal GDP in USD Billions)
 demand = {
     'Ethiopia': 150, 
-    'Kenya': 110, 
-    'Tanzania': 75, 
-    'Uganda': 45, 
-    'Rwanda': 13
+    'Kenya': 136, 
+    'Tanzania': 87, 
+    'Uganda': 66, 
+    'Rwanda': 16
 }
 # K_i: Production Capacity (Scaled to handle peak regional demand)
 capacity = {h: 500 for h in hubs}
@@ -73,9 +73,15 @@ def run_stochastic_optimizer(volatility_dial, iterations=100):
                     #  Floor the variance at 0 to prevent the solver farming negative freight costs
                     sim_freight = max(0, np.random.normal(base_freight[i][j], base_freight[i][j] * volatility_dial))
                     
-                    tariff = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
-                    risk_adjusted_cost = (sim_freight + tariff) / fx_lambda[i]
-                    total_variable_cost += risk_adjusted_cost * X[(i, j, t)]
+                    # 1. MFN Path (Cheap production, brutal static tariffs)
+                    tariff_mfn = 0 if i == j else static_mfn_tariff
+                    cost_mfn = (sim_freight + tariff_mfn + prod_cost_mfn) / fx_lambda[i]
+                    total_variable_cost += cost_mfn * X_MFN[(i, j, t)]
+                    
+                    # 2. RoO Path (Expensive production, decaying AfCFTA tariffs)
+                    tariff_roo = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
+                    cost_roo = (sim_freight + tariff_roo + prod_cost_roo) / fx_lambda[i]
+                    total_variable_cost += cost_roo * X_RoO[(i, j, t)]
                     
         model += pulp.lpSum([(fixed_costs[i] * 1000)* Y[i] for i in hubs]) + total_variable_cost
 
@@ -114,7 +120,7 @@ def run_stochastic_optimizer(volatility_dial, iterations=100):
   # --- STREAMLIT FRONTEND ----------------------------------------------------------------------------------
 st.set_page_config(page_title="AfCFTA Optimizer", layout="wide")
 st.title("AfCFTA Capital Node Optimizer")
-st.markdown("Macro-Stochastic supply chain routing across the top 5 East African economies, balancing Logistics Volatility, FX Constraints, and Rules of Origin (RoO) Upstream Sourcing.")
+st.markdown("Macro-Stochastic supply chain routing across the top 5 East African economies, balancing Logistics Volatility, FX Constraints, and Rules of Origin (RoO).")
 st.sidebar.header("Stress Test Parameters")
 volatility = st.sidebar.slider("Macro-Volatility Index (Logistics Friction Variance)", 0.0, 0.50, 0.10, 0.05)
 iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=10, max_value=500, value=50, step=10)
