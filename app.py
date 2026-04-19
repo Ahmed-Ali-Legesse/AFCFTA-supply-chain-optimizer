@@ -83,7 +83,7 @@ def run_stochastic_optimizer(volatility_dial, iterations=100):
                     cost_roo = (sim_freight + tariff_roo + prod_cost_roo) / fx_lambda[i]
                     total_variable_cost += cost_roo * X_RoO[(i, j, t)]
                     
-        model += pulp.lpSum([(fixed_costs[i] * 1000)* Y[i] for i in hubs]) + total_variable_cost
+        model += pulp.lpSum([(fixed_costs[i] * 1000)* (Y_MFN[i] + Y_RoO[i]) for i in hubs]) + total_variable_cost
 
         # Constraints
         # 1. Mutually Exclusive Hubs: A country can only host one type of hub (or neither)
