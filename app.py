@@ -20,6 +20,16 @@ discount_rates = {
     'Ethiopia': 0.25  # Severe sovereign default/inflation premium
 }
 
+# Effective Local Tax & Hidden Levy Burden
+# Proxy multiplier for Import Declaration Fees (IDF), Railway Levies (RDL), County Cesses, and Surtaxes
+local_tax_levies = {
+    'Rwanda': 0.015,  # 1.5% - Highly streamlined, low hidden friction
+    'Tanzania': 0.03, # 3.0% - Standard local government taxes
+    'Kenya': 0.05,    # 5.0% - High IDF, RDL, and decentralized county cesses
+    'Uganda': 0.06,   # 6.0% - Infrastructure levies and non-recoverable import WHT
+    'Ethiopia': 0.10  # 10.0% - High surtaxes and unpredictable municipal levies
+}
+
 # F_i: Fixed Capex (USD Millions)
 fixed_costs = {'Ethiopia': 30, 'Tanzania': 38, 'Uganda': 42, 'Rwanda': 48, 'Kenya': 55}
 
@@ -121,8 +131,9 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         
         total_variable_cost = 0
         for i in hubs:
-            cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False)
-            cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True)
+        # Multiply the base production cost by the sovereign hidden tax burden
+cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False) * (1 + local_tax_levies[i])
+cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True) * (1 + local_tax_levies[i])
             
             for j in markets:
                 for t in years:
