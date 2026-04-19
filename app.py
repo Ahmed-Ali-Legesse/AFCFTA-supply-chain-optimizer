@@ -27,6 +27,15 @@ base_freight = {
     'Rwanda':   {'Kenya': 35, 'Uganda': 12, 'Rwanda': 3,  'Tanzania': 30, 'Ethiopia': 55},
     'Uganda':   {'Kenya': 22, 'Uganda': 4,  'Rwanda': 12, 'Tanzania': 28, 'Ethiopia': 50}
 }
+# World Bank LPI Proxy (Converted to a Friction Multiplier)
+# Lower is better (1.0 = Frictionless, Higher = Severe Infrastructure Decay)
+lpi_friction = {
+    'Kenya': 1.2,   # Strong port, SGR rail
+    'Rwanda': 1.3,  # Excellent customs efficiency, despite being landlocked
+    'Tanzania': 1.5,# Good port, but inland road decay
+    'Uganda': 1.8,  # High border friction
+    'Ethiopia': 2.2 # Severe customs delays, conflict-prone corridors
+}
 
 # --- DYNAMIC DEMAND: THE GRAVITY MODEL ---
 gdp_billions = {'Kenya': 136, 'Tanzania': 88, 'Ethiopia': 160, 'Uganda': 66, 'Rwanda': 16}
@@ -40,8 +49,15 @@ distance_km = {
 
 def calculate_gravity_demand(origin, destination):
     if origin == destination:
-        return gdp_billions[destination] * 2  # Domestic captive market
-    return round(100 * (gdp_billions[destination] / distance_km[origin][destination]), 2)
+        return gdp_billions[destination] * 2  
+        
+    # Calculate average corridor friction between the two countries
+    corridor_friction = (lpi_friction[origin] + lpi_friction[destination]) / 2
+    
+    # Effective distance penalizes poor infrastructure
+    effective_distance = distance_km[origin][destination] * corridor_friction
+    
+    return round(100 * (gdp_billions[destination] / effective_distance), 2)
 
 # --- DYNAMIC OPEX: LABOR & ENERGY COMBINED ---
 monthly_labor_wage = {'Ethiopia': 35, 'Uganda': 70, 'Rwanda': 90, 'Tanzania': 120, 'Kenya': 160}
@@ -81,7 +97,8 @@ def run_stochastic_optimizer(volatility_dial, iterations):
             
             for j in markets:
                 for t in years:
-                    sim_freight = np.random.normal(base_freight[i][j], base_freight[i][j] * volatility_dial)
+# Base freight is the floor. Volatility only adds cost via an exponential shock.
+sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_dial))
                     
                     # 1. Global Sourcing / MFN Path
                     tariff_mfn = 0 if i == j else static_mfn_tariff
