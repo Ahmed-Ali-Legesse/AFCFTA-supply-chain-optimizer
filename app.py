@@ -68,6 +68,14 @@ transit_days = {
 }
 
 # --- DYNAMIC DEMAND: THE GRAVITY MODEL ---
+
+# STREAMLIT SIDEBAR
+st.sidebar.header("Macroeconomic Policy Shocks")
+ethiopia_fx_regime = st.sidebar.radio(
+    "Ethiopia FX Regime (Birr Float Impact)",
+    ("Pre-Float (2024 Pegged GDP)", "Post-Float (2025 Market GDP)")
+)
+
 # The Birr float destroyed Ethiopia's USD-denominated purchasing power
 ethiopia_gdp = 150 if ethiopia_fx_regime == "Pre-Float (2024 Pegged GDP)" else 109
 
@@ -90,13 +98,10 @@ distance_km = {
 def calculate_gravity_demand(origin, destination):
     if origin == destination:
         return gdp_billions[destination] * 2  
-        
     # Calculate average corridor friction between the two countries
     corridor_friction = (lpi_friction[origin] + lpi_friction[destination]) / 2
-    
     # Effective distance penalizes poor infrastructure
     effective_distance = distance_km[origin][destination] * corridor_friction
-    
     return round(100 * (gdp_billions[destination] / effective_distance), 2)
 
 # --- DYNAMIC OPEX: LABOR & ENERGY COMBINED ---
@@ -218,11 +223,6 @@ st.sidebar.header("Stress Test Parameters")
 volatility = st.sidebar.slider("Logistics Volatility Index (\u03C3)", 0.0, 0.50, 0.15, 0.05)
 iterations = st.sidebar.number_input("Monte Carlo Iterations", min_value=50, max_value=1000, value=250, step=50)
 
-st.sidebar.header("Macroeconomic Policy Shocks")
-ethiopia_fx_regime = st.sidebar.radio(
-    "Ethiopia FX Regime (Birr Float Impact)",
-    ("Pre-Float (2024 Pegged GDP)", "Post-Float (2025 Market GDP)")
-)
 
 if st.sidebar.button("Run Capital Allocation Engine"):
     outcomes = run_stochastic_optimizer(volatility, iterations)
