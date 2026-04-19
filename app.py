@@ -20,14 +20,15 @@ discount_rates = {
     'Ethiopia': 0.25  # Severe sovereign default/inflation premium
 }
 
-# Effective Local Tax & Hidden Levy Burden
-# Proxy multiplier for Import Declaration Fees (IDF), Railway Levies (RDL), County Cesses, and Surtaxes
-local_tax_levies = {
-    'Rwanda': 0.015,  # 1.5% - Highly streamlined, low hidden friction
-    'Tanzania': 0.03, # 3.0% - Standard local government taxes
-    'Kenya': 0.05,    # 5.0% - High IDF, RDL, and decentralized county cesses
-    'Uganda': 0.06,   # 6.0% - Infrastructure levies and non-recoverable import WHT
-    'Ethiopia': 0.10  # 10.0% - High surtaxes and unpredictable municipal levies
+# World Bank Enterprise Surveys - Bureaucratic "Time Tax" 
+# Proxy for hidden levies and regulatory operational bleed
+# Metric: "Senior management time spent dealing with the requirements of government regulation (%)"
+wb_bureaucratic_tax = {
+    'Rwanda': 0.04,   # ~4% - Highly digitized and streamlined
+    'Uganda': 0.06,   # ~6% 
+    'Kenya': 0.09,    # ~9% - Heavy decentralized county-level friction
+    'Ethiopia': 0.11, # ~11% - Severe federal/municipal bureaucratic drag
+    'Tanzania': 0.12  # ~12% - High regulatory compliance burden
 }
 
 # F_i: Fixed Capex (USD Millions)
@@ -131,9 +132,9 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         
         total_variable_cost = 0
         for i in hubs:
-        # Multiply the base production cost by the sovereign hidden tax burden
-cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False) * (1 + local_tax_levies[i])
-cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True) * (1 + local_tax_levies[i])
+    # Multiply the base production cost by the World Bank Bureaucratic Time Tax
+cost_mfn_prod = calculate_unit_opex(i, is_roo_compliant=False) * (1 + wb_bureaucratic_tax[i])
+cost_roo_prod = calculate_unit_opex(i, is_roo_compliant=True) * (1 + wb_bureaucratic_tax[i])
             
             for j in markets:
                 for t in years:
