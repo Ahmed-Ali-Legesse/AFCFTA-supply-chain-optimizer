@@ -156,12 +156,17 @@ def run_stochastic_optimizer(volatility_dial, iterations):
             
             for j in markets:
                 for t in years:
-                    #Asymmetric Exponential Volatility (Chaos only adds friction)
-                    sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_dial))
-                    actual_days = transit_days[i][j] * (1 + np.random.exponential(scale=volatility_dial))
-                    #Transit Holding Cost (Capital trapped in logistics)
+                    # DOMESTIC vs CROSS-BORDER SHOCKS
+                    if i == j:
+                     sim_freight = base_freight[i][j]
+                     actual_days = transit_days[i][j]
+                else:
+                    shock = np.random.exponential(scale=volatility_dial * lpi_friction[j])
+                    sim_freight = base_freight[i][j] * (1 + (shock * 3))
+                    actual_days = transit_days[i][j] * (1 + (shock * 5))
                     holding_cost = unit_value * corporate_wacc * (actual_days / 365)
                     
+        
                     # 1. Global Sourcing / MFN Path
                     tariff_mfn = 0 if i == j else static_mfn_tariff
                     cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[j]
