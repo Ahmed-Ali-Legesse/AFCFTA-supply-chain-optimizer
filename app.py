@@ -144,6 +144,9 @@ def run_stochastic_optimizer(volatility_dial, iterations):
         Y_RoO = pulp.LpVariable.dicts("Hub_RoO", hubs, cat='Binary')
         X_MFN = pulp.LpVariable.dicts("Ship_MFN", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
         X_RoO = pulp.LpVariable.dicts("Ship_RoO", [(i, j, t) for i in hubs for j in markets for t in years], lowBound=0)
+
+        # Force the engine to scale abstract proxy demand up to industrial reality
+        volume_multiplier = 10000
         
         total_variable_cost = 0
         for i in hubs:
@@ -153,22 +156,22 @@ def run_stochastic_optimizer(volatility_dial, iterations):
             
             for j in markets:
                 for t in years:
-                    # NEW: Asymmetric Exponential Volatility (Chaos only adds friction)
+                    #Asymmetric Exponential Volatility (Chaos only adds friction)
                     sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_dial))
                     actual_days = transit_days[i][j] * (1 + np.random.exponential(scale=volatility_dial))
-                    
-                    # NEW: Transit Holding Cost (Capital trapped in logistics)
+                    #Transit Holding Cost (Capital trapped in logistics)
                     holding_cost = unit_value * corporate_wacc * (actual_days / 365)
                     
                     # 1. Global Sourcing / MFN Path
                     tariff_mfn = 0 if i == j else static_mfn_tariff
                     cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[j]
-                    total_variable_cost += cost_mfn * X_MFN[(i, j, t)]
+                   # MULTIPLY BY VOLUME SCALER
+                    total_variable_cost += (cost_mfn * volume_multiplier) * X_MFN[(i, j, t)]
                     
                     # 2. AfCFTA Compliant / RoO Path
                     tariff_roo = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
                     cost_roo = (sim_freight + holding_cost + tariff_roo + cost_roo_prod) / fx_lambda[j]
-                    total_variable_cost += cost_roo * X_RoO[(i, j, t)]
+                    total_variable_cost += (cost_roo * volume_multiplier) * X_RoO[(i, j, t)]
                     
                     
        # NEW: Objective function uses Amortized CapEx instead of raw Fixed Costs
