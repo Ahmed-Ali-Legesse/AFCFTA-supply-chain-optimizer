@@ -5,10 +5,20 @@ import pandas as pd
 from collections import Counter
 import gc
 
-# --- MACROECONOMIC PROXY DATA (EAST AFRICA TOP 5) ---
+# --- MACROECONOMIC PROXY DATA (EAST AFRICA TOP 5) ----------------------------------------
 hubs = ['Kenya', 'Tanzania', 'Ethiopia', 'Rwanda', 'Uganda']
 markets = ['Kenya', 'Tanzania', 'Ethiopia', 'Uganda', 'Rwanda']
 years = [1, 2, 3, 4, 5]
+
+# Sovereign Borrowing Rates (Proxy for Cost of Capital 'r')
+# Source: Central Bank lending rates / Sovereign Bond Yields
+discount_rates = {
+    'Rwanda': 0.08,   # High DFI concessional backing
+    'Tanzania': 0.10, 
+    'Uganda': 0.12, 
+    'Kenya': 0.16,    # High domestic debt burden
+    'Ethiopia': 0.25  # Severe sovereign default/inflation premium
+}
 
 # F_i: Fixed Capex (USD Millions)
 fixed_costs = {'Ethiopia': 30, 'Tanzania': 38, 'Uganda': 42, 'Rwanda': 48, 'Kenya': 55}
@@ -35,6 +45,15 @@ lpi_friction = {
     'Tanzania': 1.5,# Good port, but inland road decay
     'Uganda': 1.8,  # High border friction
     'Ethiopia': 2.2 # Severe customs delays, conflict-prone corridors
+}
+
+# Average Transit Days (Perfect Conditions)
+transit_days = {
+    'Kenya':    {'Kenya': 1, 'Tanzania': 3, 'Ethiopia': 6, 'Uganda': 4, 'Rwanda': 7},
+    'Tanzania': {'Kenya': 3, 'Tanzania': 1, 'Ethiopia': 8, 'Uganda': 5, 'Rwanda': 4},
+    'Ethiopia': {'Kenya': 6, 'Tanzania': 8, 'Ethiopia': 1, 'Uganda': 7, 'Rwanda': 9},
+    'Rwanda':   {'Kenya': 7, 'Tanzania': 4, 'Ethiopia': 9, 'Uganda': 2, 'Rwanda': 1},
+    'Uganda':   {'Kenya': 4, 'Tanzania': 5, 'Ethiopia': 7, 'Rwanda': 2, 'Uganda': 1}
 }
 
 # --- DYNAMIC DEMAND: THE GRAVITY MODEL ---
@@ -71,16 +90,26 @@ def calculate_unit_opex(hub, is_roo_compliant):
     
     # 50% premium for forcing localized African supply chains (RoO)
     return base_opex * 1.5 if is_roo_compliant else base_opex
-
+    
+# Value of a single unit of goods (e.g., $1,000)
+unit_value = 1000 
+corporate_wacc = 0.15 # 15% corporate cost of capital
 static_mfn_tariff = 25  # Punitive tariff for failing AfCFTA Rules of Origin
 
-# --- THE STOCHASTIC ENGINE ---
+# --- THE STOCHASTIC ENGINE -------------------------------------------------------
 def run_stochastic_optimizer(volatility_dial, iterations):
     results = Counter()
     
     # UI Elements for memory and UX
     progress_bar = st.progress(0)
     status_text = st.empty()
+
+    # Pre-calculate Amortized CapEx to save loop computing time
+    # Formula: F_i * [ r / (1 - (1+r)^-T) ]
+    annualized_capex = {}
+    for i in hubs:
+        r = discount_rates[i]
+        annualized_capex[i] = fixed_costs[i] * (r / (1 - (1 + r)**-5))
     
     for step in range(iterations):
         model = pulp.LpProblem(f"Sim_{step}", pulp.LpMinimize)
@@ -97,21 +126,26 @@ def run_stochastic_optimizer(volatility_dial, iterations):
             
             for j in markets:
                 for t in years:
-# Base freight is the floor. Volatility only adds cost via an exponential shock.
-sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_dial))
+                    # NEW: Asymmetric Exponential Volatility (Chaos only adds friction)
+                    sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_dial))
+                    actual_days = transit_days[i][j] * (1 + np.random.exponential(scale=volatility_dial))
+                    
+                    # NEW: Transit Holding Cost (Capital trapped in logistics)
+                    holding_cost = unit_value * corporate_wacc * (actual_days / 365)
                     
                     # 1. Global Sourcing / MFN Path
                     tariff_mfn = 0 if i == j else static_mfn_tariff
-                    cost_mfn = (sim_freight + tariff_mfn + cost_mfn_prod) / fx_lambda[i]
+                    cost_mfn = (sim_freight + holding_cost + tariff_mfn + cost_mfn_prod) / fx_lambda[i]
                     total_variable_cost += cost_mfn * X_MFN[(i, j, t)]
                     
                     # 2. AfCFTA Compliant / RoO Path
                     tariff_roo = 0 if i == j else max(0, 15 * (1 - 0.20 * (t - 1)))
-                    cost_roo = (sim_freight + tariff_roo + cost_roo_prod) / fx_lambda[i]
+                    cost_roo = (sim_freight + holding_cost + tariff_roo + cost_roo_prod) / fx_lambda[i]
                     total_variable_cost += cost_roo * X_RoO[(i, j, t)]
                     
-        # Objective: Unit scale Capex (*1000) + Network Cost
-        model += pulp.lpSum([(fixed_costs[i] * 1000) * (Y_MFN[i] + Y_RoO[i]) for i in hubs]) + total_variable_cost
+                    
+       # NEW: Objective function uses Amortized CapEx instead of raw Fixed Costs
+        model += pulp.lpSum([(annualized_capex[i] * 1000) * (Y_MFN[i] + Y_RoO[i]) for i in hubs]) + total_variable_cost
         
         # Constraints
         for i in hubs:
@@ -153,7 +187,7 @@ sim_freight = base_freight[i][j] * (1 + np.random.exponential(scale=volatility_d
     status_text.text("Optimization complete.")
     return results
 
-# --- STREAMLIT FRONTEND ---
+# --- STREAMLIT FRONTEND -----------------------------------------
 st.set_page_config(page_title="AfCFTA Stochastic Optimizer", layout="wide")
 st.title("AfCFTA Capital Node Optimizer")
 st.markdown("Macro-Stochastic MILP balancing Gravity Demand, Volatility, FX Constraints, and RoO Upstream OpEx.")
