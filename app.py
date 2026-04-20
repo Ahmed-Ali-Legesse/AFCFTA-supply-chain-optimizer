@@ -105,7 +105,7 @@ def run_dynamic_saa_model(volatility, n_scenarios):
         for t in years:
             for j in markets:
                 base_d = sum([get_ppml_demand(i, j, t) for i in hubs]) / len(hubs)
-                demand_matrix[(j, t, s)] = base_d * scenarios[s][j]
+                demand_matrix[(j, t, s)] = base_d / scenarios[s][j]
 
     model = pulp.LpProblem("AfCFTA_Enterprise_SAA", pulp.LpMinimize)
     
