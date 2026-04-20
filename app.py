@@ -14,7 +14,7 @@ risk_free_rate = 0.04
 equity_premium = 0.06
 corporate_tax_rate = {h: 0.30 for h in hubs}
 
-# UPGRADE 1: Dynamic Capital Structure based on local credit market depth
+# Dynamic Capital Structure based on local credit market depth
 # Ethiopia has severe liquidity crunches; Kenya has deep domestic debt markets.
 debt_capacity = {'Kenya': 0.50, 'Tanzania': 0.40, 'Uganda': 0.35, 'Rwanda': 0.30, 'Ethiopia': 0.10}
 
@@ -57,7 +57,7 @@ distance_km = {
     'Uganda':   {'Kenya': 650, 'Tanzania': 1000, 'Ethiopia': 1200, 'Rwanda': 500, 'Uganda': 1}
 }
 
-# UPGRADE 2: PPML Gravity Model Proxy handling Zero-Trade flows
+# PPML Gravity Model Proxy handling Zero-Trade flows
 def get_ppml_demand(origin, destination, year):
     if origin == destination: 
         return gdp_billions[destination] * 2 * (1.03 ** year) 
@@ -99,7 +99,7 @@ def run_dynamic_saa_model(volatility, n_scenarios):
             mu = -0.5 * (sigma ** 2) 
             scenarios[s][j] = np.random.lognormal(mean=mu, sigma=sigma)
 
-    # UPGRADE 3: Pre-compute demand to avoid loop overhead
+    # Pre-compute demand to avoid loop overhead
     demand_matrix = {}
     for s in range(n_scenarios):
         for t in years:
@@ -127,8 +127,7 @@ def run_dynamic_saa_model(volatility, n_scenarios):
                     freight_cost = base_freight[i][j] * scenarios[s][j]
                     
                     tariff_mfn = 0 if i == j else 0.25 * bom_imported
-                    tariff_roo = 0 if i == j else max(0, 0.15 - (0.03 * t)) * bom_local
-                    
+                    tariff_roo = 0 
                     cost_mfn = (bom_imported + freight_cost + tariff_mfn) * (1 + time_tax[i])
                     cost_roo = (bom_local + freight_cost + tariff_roo) * (1 + time_tax[i])
                     
