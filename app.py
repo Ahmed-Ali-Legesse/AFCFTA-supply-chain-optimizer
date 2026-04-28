@@ -34,7 +34,9 @@ def load_base_parameters(data_dir="data/"):
 
     # 1D. Baseline Demand (Derived from CEPII Economic Mass)
     # Calibrated using gdp_d and population weights for HS 300490
-    base_demand = dict(zip(gravity_df['iso3_d'].map({'KEN':'Kenya', 'TZA':'Tanzania', 'UGA':'Uganda', 'RWA':'Rwanda', 'ETH':'Ethiopia'}), gravity_df['gdp_d'] * 0.0001)) # Simplified scaling
+    # Force clean data extraction to prevent hidden NaNs
+    demand_subset = gravity_df.dropna(subset=['Country', 'gdp_d']).drop_duplicates(subset=['Country'])
+    base_demand = dict(zip(demand_subset['Country'], demand_subset['gdp_d'].astype(float) * 0.0001))
 
     return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand
 
@@ -86,11 +88,10 @@ def run_deterministic_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, ba
         model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand.get(j, 10.0), f"Demand_Fulfillment_{j}"
 
     # 2. Capacity & Logic Constraint: Cannot ship from i if factory y_i is not built (Big M = 10,000)
-    # Dynamically calculate the Big M constraint to always exceed total network demand
-    dynamic_capacity = sum(base_demand.values()) * 2
-    
+    # capacity constraint
+    big_m = 1_000_000_000 
     for i in nodes:
-        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * dynamic_capacity
+        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * big_m
 
     # 3. Single Factory Constraint (Optional: Force solver to pick exactly 1 regional hub for $50M)
     model += pulp.lpSum([y[i] for i in nodes]) == 1, "Single_Hub_Constraint"
