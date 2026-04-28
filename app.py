@@ -33,8 +33,8 @@ def load_base_parameters():
     gravity_df['Country'] = gravity_df['iso3_d'].map(iso_map)
     
     demand_subset = gravity_df.dropna(subset=['Country', 'gdp_d']).drop_duplicates(subset=['Country'])
-    # 1. Set a realistic annual market demand for a $50M factory (e.g., 250 Million units)
-    target_demand_millions = 250.0 
+    # 1. Set a realistic annual market demand for a $50M factory (e.g., 500 Million units)
+    target_demand_millions = 500.0 
     
     # 2. Calculate the total GDP of the 5 countries to find their relative weight
     total_gdp = demand_subset['gdp_d'].astype(float).sum()
@@ -57,8 +57,14 @@ def load_base_parameters():
 def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down):
     model = pulp.LpProblem("AfCFTA_Pharma_CapEx", pulp.LpMinimize)
 
-    capex_cost = 50.0 
-    production_cost = 0.2
+    capex_cost = 85.0 
+    production_cost = {
+        "Year_1": 0.10,
+        "Year_2": 0.09,
+        "Year_3": 0.08,
+        "Year_4": 0.07,
+        "Year_5": 0.07
+    }
 
     y = pulp.LpVariable.dicts("Hub", nodes, cat='Binary')
     x = pulp.LpVariable.dicts("Route", [(i, j) for i in nodes for j in nodes], lowBound=0, cat='Continuous')
@@ -79,16 +85,24 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     model += total_capex + total_ops
 
     # Constraints
+   # 1. Demand Fulfillment
     for j in nodes:
         model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand[j]
         
-    big_m = 1000.0
+    # 2. Minimum Viability Floor (Factory must produce >= 405M units if built)
+    min_volume = 405.0 
     for i in nodes:
-        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * big_m
+        model += pulp.lpSum([x[(i, j)] for j in nodes]) >= y[i] * min_volume
         
+    # 3. Installed Capacity Limit (Sansheng Phase I max capacity: 5 Billion units)
+    max_capacity = 5000.0 
+    for i in nodes:
+        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * max_capacity
+        
+    # 4. Single Hub Limit
     model += pulp.lpSum([y[i] for i in nodes]) == 1
 
-    model.solve(pulp.PULP_CBC_CMD(msg=False))
+    model.solve(pulp.PULP_CBC_CMD(msg=False)
     
     if pulp.LpStatus[model.status] != 'Optimal':
         return pulp.LpStatus[model.status], "No Solution", 0.0, 0.0, 0.0, {}
@@ -113,9 +127,9 @@ with st.sidebar:
     st.header("Model Constraints")
     roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True, help="Toggles the MFN penalty pathway.")
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
-    st.markdown("---")
     st.write("**Base Assumptions:**")
-    st.write("CapEx: $50M")
+    st.write("CapEx: $85M (WHO-GMP Compliant)")
+    st.write("Minimum Volume: 405M Units")
     st.write("Target HS: 300490")
 
 status, hub, total_cost, capex_val, ops_val, routing = run_milp(
