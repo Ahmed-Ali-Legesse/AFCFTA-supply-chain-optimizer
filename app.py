@@ -199,7 +199,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
         model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * 10000
     model += pulp.lpSum([y[i] for i in nodes]) == 1
 
-    odel.solve(pulp.PULP_CBC_CMD(msg=False))
+    model.solve(pulp.PULP_CBC_CMD(msg=False))
     
     # 1. Safety check: Did the solver actually find a valid solution?
     if pulp.LpStatus[model.status] != 'Optimal':
