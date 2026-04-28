@@ -6,39 +6,51 @@ import plotly.graph_objects as go
 import plotly.express as px
 #***************************************************
 # --- 1. DATA INGESTION & DICTIONARY INITIALIZATION ---
-def load_base_parameters(data_dir="data/"):
-    # Load extracted CSVs
-    wacc_df = pd.read_csv(f"{data_dir}ea_wacc_parameters.csv")
-    gravity_df = pd.read_csv(f"{data_dir}ea_gravity_matrix.csv")
-    friction_df = pd.read_csv(f"{data_dir}ea_friction_matrix.csv")
+@st.cache_data
+def load_base_parameters():
+    # 1. Load the CSVs directly from the local repository folder
+    wacc_df = pd.read_csv("data/ea_wacc_parameters.csv")
+    gravity_df = pd.read_csv("data/ea_gravity_matrix.csv")
+    friction_df = pd.read_csv("data/ea_friction_matrix.csv")
 
     nodes = ['Kenya', 'Tanzania', 'Uganda', 'Rwanda', 'Ethiopia']
 
-    # 1A. MFN Tariffs (HS 300490)
-    # EAC is 0%, Ethiopia is 5%
+    # 2. MFN Tariffs (0% EAC, 5% Ethiopia)
     mfn_tariffs = {n: 0.0 for n in nodes}
     mfn_tariffs['Ethiopia'] = 0.05 
 
-    # 1B. Cost of Equity (Hurdle Rates) derived from Damodaran CRP
-    # Ke = Rf + Beta(ERP) + CRP. Assuming Rf=0.04, Beta=1.0, ERP=0.05 for baseline.
-    rf, beta, erp_mature = 0.04, 1.0, 0.05
+    # 3. Hurdle Rates (Damodaran CAPM logic: Rf + ERP + CRP)
+    rf, erp_mature = 0.04, 0.05
     crp_dict = dict(zip(wacc_df['Country'], wacc_df['Country Risk Premium']))
-    hurdle_rates = {n: rf + (beta * erp_mature) + crp_dict.get(n, 0.10) for n in nodes}
+    hurdle_rates = {n: rf + erp_mature + crp_dict.get(n, 0.10) for n in nodes}
 
-    # 1C. Logistics Friction (Ad Valorem Multipliers from ESCAP)
+    # 4. Logistics Friction Matrix (ESCAP)
     friction_matrix = {}
     for _, row in friction_df.iterrows():
         friction_matrix[(row['Origin'], row['Destination'])] = row['Ad_Valorem_Cost']
     for n in nodes:
-        friction_matrix[(n, n)] = 1.0 # No border friction for domestic supply
+        friction_matrix[(n, n)] = 1.0 # No domestic border friction
 
-    # 1D. Baseline Demand (Derived from CEPII Economic Mass)
-    # Calibrated using gdp_d and population weights for HS 300490
-    # Force clean data extraction to prevent hidden NaNs
+    # 5. Base Demand (CEPII Economic Mass - scaled for model stability)
+    iso_map = {'KEN': 'Kenya', 'TZA': 'Tanzania', 'UGA': 'Uganda', 'RWA': 'Rwanda', 'ETH': 'Ethiopia'}
+    
+    # Map ISO codes to create the 'Country' column first
+    gravity_df['Country'] = gravity_df['iso3_d'].map(iso_map)
+    
+    # Strip NaNs and duplicates now that the column exists
     demand_subset = gravity_df.dropna(subset=['Country', 'gdp_d']).drop_duplicates(subset=['Country'])
+    
+    # Build the dictionary, casting to float to prevent type errors
     base_demand = dict(zip(demand_subset['Country'], demand_subset['gdp_d'].astype(float) * 0.0001))
 
-    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand
+    # 6. Lat/Lon for Plotly Map
+    coords = {
+        'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
+        'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
+        'Ethiopia': (9.1450, 40.4897)
+    }
+
+    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords
 
 #********************************************************************************
 # --- 2. MILP SOLVER INITIALIZATION ---
