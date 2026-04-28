@@ -236,8 +236,8 @@ with st.sidebar:
     st.write("Target HS: 300490")
 
 # Run Solver
-    status, hub, total_cost, capex_val, ops_val, routing = run_milp(
-    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down
+status, hub, total_cost, capex_val, ops_val, routing = run_milp(
+nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down
 )
 
 # --- 4. EXECUTIVE KPIs ---
