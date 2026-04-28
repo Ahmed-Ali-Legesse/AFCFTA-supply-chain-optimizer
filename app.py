@@ -239,7 +239,9 @@ with st.sidebar:
 status, hub, total_cost, capex_val, ops_val, routing = run_milp(
 nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down
 )
-
+if hub == "No Solution" or status != 'Optimal':
+    st.error(f"The solver could not find a valid supply chain network. Status: {status}")
+    st.stop()
 # --- 4. EXECUTIVE KPIs ---
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(label="Optimal Factory Location", value=hub)
