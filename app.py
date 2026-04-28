@@ -1,203 +1,299 @@
-import streamlit as st
+import pandas as pd
 import pulp
 import numpy as np
-import pandas as pd
-import gc
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
+#***************************************************
 
-# --- 1. MACROECONOMIC & FINANCIAL DATA ---
-hubs = ['Kenya', 'Tanzania', 'Ethiopia', 'Rwanda', 'Uganda']
-markets = ['Kenya', 'Tanzania', 'Ethiopia', 'Uganda', 'Rwanda']
-years = [1, 2, 3, 4, 5]
+# --- 1. DATA INGESTION & DICTIONARY INITIALIZATION ---
+def load_base_parameters(data_dir="data/"):
+    # Load extracted CSVs
+    wacc_df = pd.read_csv(f"{data_dir}ea_wacc_parameters.csv")
+    gravity_df = pd.read_csv(f"{data_dir}ea_gravity_matrix.csv")
+    friction_df = pd.read_csv(f"{data_dir}ea_friction_matrix.csv")
 
-# Corporate Finance: WACC Components
-risk_free_rate = 0.04
-equity_premium = 0.06
-corporate_tax_rate = {h: 0.30 for h in hubs}
+    nodes = ['Kenya', 'Tanzania', 'Uganda', 'Rwanda', 'Ethiopia']
 
-# Dynamic Capital Structure based on local credit market depth
-# Ethiopia has severe liquidity crunches; Kenya has deep domestic debt markets.
-debt_capacity = {'Kenya': 0.50, 'Tanzania': 0.40, 'Uganda': 0.35, 'Rwanda': 0.30, 'Ethiopia': 0.10}
+    # 1A. MFN Tariffs (HS 300490)
+    # EAC is 0%, Ethiopia is 5%
+    mfn_tariffs = {n: 0.0 for n in nodes}
+    mfn_tariffs['Ethiopia'] = 0.05 
 
-# Hub-specific risk profiles
-beta = {'Kenya': 1.1, 'Tanzania': 1.2, 'Uganda': 1.3, 'Rwanda': 1.0, 'Ethiopia': 1.8}
-crp = {'Kenya': 0.08, 'Tanzania': 0.06, 'Uganda': 0.07, 'Rwanda': 0.04, 'Ethiopia': 0.18}
-local_debt_rate = {'Kenya': 0.14, 'Tanzania': 0.11, 'Uganda': 0.13, 'Rwanda': 0.09, 'Ethiopia': 0.22}
+    # 1B. Cost of Equity (Hurdle Rates) derived from Damodaran CRP
+    # Ke = Rf + Beta(ERP) + CRP. Assuming Rf=0.04, Beta=1.0, ERP=0.05 for baseline.
+    rf, beta, erp_mature = 0.04, 1.0, 0.05
+    crp_dict = dict(zip(wacc_df['Country'], wacc_df['Country Risk Premium']))
+    hurdle_rates = {n: rf + (beta * erp_mature) + crp_dict.get(n, 0.10) for n in nodes}
 
-# Calculate adjusted WACC per hub
-wacc = {}
-for h in hubs:
-    cost_of_equity = risk_free_rate + (beta[h] * equity_premium) + crp[h]
-    cost_of_debt = local_debt_rate[h] * (1 - corporate_tax_rate[h])
-    w_d = debt_capacity[h]
-    w_e = 1 - w_d
-    wacc[h] = (w_e * cost_of_equity) + (w_d * cost_of_debt)
+    # 1C. Logistics Friction (Ad Valorem Multipliers from ESCAP)
+    friction_matrix = {}
+    for _, row in friction_df.iterrows():
+        friction_matrix[(row['Origin'], row['Destination'])] = row['Ad_Valorem_Cost']
+    for n in nodes:
+        friction_matrix[(n, n)] = 1.0 # No border friction for domestic supply
 
-# Bureaucratic Time Tax & CapEx
-time_tax = {'Rwanda': 0.04, 'Uganda': 0.06, 'Kenya': 0.09, 'Ethiopia': 0.11, 'Tanzania': 0.12}
-fixed_costs = {'Ethiopia': 30, 'Tanzania': 38, 'Uganda': 42, 'Rwanda': 48, 'Kenya': 55}
-capacity = {h: 2000 for h in hubs}
-fx_capacity = {'Kenya': 5000, 'Tanzania': 4000, 'Uganda': 3000, 'Rwanda': 2000, 'Ethiopia': 250}
+    # 1D. Baseline Demand (Derived from CEPII Economic Mass)
+    # Calibrated using gdp_d and population weights for HS 300490
+    base_demand = dict(zip(gravity_df['iso3_d'].map({'KEN':'Kenya', 'TZA':'Tanzania', 'UGA':'Uganda', 'RWA':'Rwanda', 'ETH':'Ethiopia'}), gravity_df['gdp_d'] * 0.0001)) # Simplified scaling
 
-lpi_friction = {'Rwanda': 1.3, 'Kenya': 1.2, 'Tanzania': 1.5, 'Uganda': 1.8, 'Ethiopia': 2.2}
-base_freight = {
-    'Kenya':    {'Kenya': 0.005, 'Uganda': 0.022, 'Rwanda': 0.035, 'Tanzania': 0.015, 'Ethiopia': 0.040},
-    'Tanzania': {'Kenya': 0.015, 'Tanzania': 0.005, 'Ethiopia': 0.045, 'Uganda': 0.028, 'Rwanda': 0.030},
-    'Ethiopia': {'Kenya': 0.040, 'Tanzania': 0.045, 'Ethiopia': 0.005, 'Uganda': 0.050, 'Rwanda': 0.055},
-    'Rwanda':   {'Kenya': 0.035, 'Tanzania': 0.030, 'Ethiopia': 0.055, 'Uganda': 0.012, 'Rwanda': 0.003},
-    'Uganda':   {'Kenya': 0.022, 'Tanzania': 0.028, 'Ethiopia': 0.050, 'Rwanda': 0.012, 'Uganda': 0.004}
-}
+    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand
 
-# --- 2. DGP: PPML GRAVITY DEMAND & BOM ---
-gdp_billions = {'Kenya': 136, 'Tanzania': 87, 'Ethiopia': 109, 'Uganda': 66, 'Rwanda': 16}
-distance_km = {
-    'Kenya':    {'Kenya': 1, 'Tanzania': 800, 'Ethiopia': 1160, 'Uganda': 650, 'Rwanda': 1150},
-    'Tanzania': {'Kenya': 800, 'Tanzania': 1, 'Ethiopia': 1750, 'Uganda': 1000, 'Rwanda': 1150},
-    'Ethiopia': {'Kenya': 1160, 'Tanzania': 1750, 'Ethiopia': 1, 'Uganda': 1200, 'Rwanda': 1700},
-    'Rwanda':   {'Kenya': 1150, 'Tanzania': 1150, 'Ethiopia': 1700, 'Uganda': 500, 'Rwanda': 1},
-    'Uganda':   {'Kenya': 650, 'Tanzania': 1000, 'Ethiopia': 1200, 'Rwanda': 500, 'Uganda': 1}
-}
+#********************************************************************************
+# --- 2. MILP SOLVER INITIALIZATION ---
+def run_deterministic_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant=True, afcfta_phase_down=0.0):
+    # Initialize Model
+    model = pulp.LpProblem("AfCFTA_Pharma_CapEx_Optimization", pulp.LpMinimize)
 
-# PPML Gravity Model Proxy handling Zero-Trade flows
-def get_ppml_demand(origin, destination, year):
-    if origin == destination: 
-        return gdp_billions[destination] * 2 * (1.03 ** year) 
+    # CapEx Parameter (1 Unit = $1M)
+    capex_cost = 50.0 
+    production_cost = 0.2 # Baseline cost to produce 1 unit of HS 300490
+
+    # Decision Variables
+    # y_i: Binary variable, 1 if factory is built in node i, 0 otherwise
+    y = pulp.LpVariable.dicts("Build_Factory", nodes, cat='Binary')
     
-    # Structural elasticities
-    beta_0 = 5.0
-    beta_1 = 0.8 # Origin mass
-    beta_2 = 0.8 # Destination mass
-    beta_3 = 1.2 # Distance decay
-    
-    # Probability of zero trade (Extensive Margin)
-    # Scales with distance and destination friction
-    friction_index = (distance_km[origin][destination] / 1000) * lpi_friction[destination]
-    zero_trade_prob = max(0, min(1, (friction_index - 1.5) / 2))
-    
-    if np.random.uniform(0, 1) < zero_trade_prob:
-        return 0.0 # Corridor is practically dead
-        
-    mass = (gdp_billions[origin] ** beta_1) * (gdp_billions[destination] ** beta_2)
-    friction = (distance_km[origin][destination] ** beta_3) * lpi_friction[destination]
-    
-    expected_trade = np.exp(beta_0) * (mass / friction)
-    return expected_trade * (1.03 ** year)
+    # x_ij: Continuous variable, volume of HS 300490 shipped from i to j
+    x = pulp.LpVariable.dicts("Shipment", [(i, j) for i in nodes for j in nodes], lowBound=0, cat='Continuous')
 
-bom_imported = 0.50 
-bom_local = 0.65    
+    # Effective Tariff Calculation
+    # If Rules of Origin (RoO) are met (CTH or >40% local VA), apply AfCFTA preference phase-down
+    effective_tariffs = {}
+    for i in nodes:
+        for j in nodes:
+            if i == j:
+                effective_tariffs[(i, j)] = 0.0
+            elif roo_compliant:
+                # Apply phase down to the MFN rate (Ethiopia drops from 0.05, EAC stays 0)
+                effective_tariffs[(i, j)] = max(0, mfn_tariffs[j] - afcfta_phase_down)
+            else:
+                # MFN penalty applies if RoO threshold fails
+                effective_tariffs[(i, j)] = mfn_tariffs[j]
 
-# --- 3. ENTERPRISE OPTIMIZATION ENGINE ---
-def run_dynamic_saa_model(volatility, n_scenarios):
-    npv_capex = {i: fixed_costs[i] for i in hubs}
+    # --- OBJECTIVE FUNCTION ---
+    # Minimize: CapEx (discounted) + Production Costs + Transportation Friction + Tariff Penalties
+    total_capex = pulp.lpSum([y[i] * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
     
-    # Generate Log-Normal Scenarios
-    scenarios = {}
-    np.random.seed(42) # Seed for UI stability, remove in production
-    for s in range(n_scenarios):
-        scenarios[s] = {}
-        for j in markets:
-            sigma = volatility * lpi_friction[j]
-            mu = -0.5 * (sigma ** 2) 
-            scenarios[s][j] = np.random.lognormal(mean=mu, sigma=sigma)
+    total_ops_and_logistics = pulp.lpSum([
+        x[(i, j)] * (production_cost * friction_matrix.get((i, j), 2.0) * (1 + effective_tariffs[(i, j)]))
+        for i in nodes for j in nodes
+    ])
+    
+    model += total_capex + total_ops_and_logistics
 
-    # Pre-compute demand to avoid loop overhead
-    demand_matrix = {}
-    for s in range(n_scenarios):
-        for t in years:
-            for j in markets:
-                base_d = sum([get_ppml_demand(i, j, t) for i in hubs]) / len(hubs)
-                demand_matrix[(j, t, s)] = base_d / scenarios[s][j]
+    # --- CONSTRAINTS ---
+    # 1. Demand Fulfillment: Total shipments into node j must meet its baseline demand
+    for j in nodes:
+        model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand.get(j, 10.0), f"Demand_Fulfillment_{j}"
 
-    model = pulp.LpProblem("AfCFTA_Enterprise_SAA", pulp.LpMinimize)
+    # 2. Capacity & Logic Constraint: Cannot ship from i if factory y_i is not built (Big M = 10,000)
+    big_m = 10000
+    for i in nodes:
+        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * big_m, f"Capacity_Logic_{i}"
+
+    # 3. Single Factory Constraint (Optional: Force solver to pick exactly 1 regional hub for $50M)
+    model += pulp.lpSum([y[i] for i in nodes]) == 1, "Single_Hub_Constraint"
+
+    # Solve
+    model.solve(pulp.PULP_CBC_CMD(msg=False))
+
+    # Output Results
+    results = {
+        "Status": pulp.LpStatus[model.status],
+        "Objective_Value_Millions": pulp.value(model.objective),
+        "Selected_Hub": [i for i in nodes if y[i].varValue == 1.0],
+        "Routing": {(i, j): x[(i, j)].varValue for i in nodes for j in nodes if x[(i, j)].varValue > 0}
+    }
+    return results
+
+# Execution Trigger
+if __name__ == "__main__":
+    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand = load_base_parameters()
     
-    Y_MFN = pulp.LpVariable.dicts("Hub_MFN", hubs, cat='Binary')
-    Y_RoO = pulp.LpVariable.dicts("Hub_RoO", hubs, cat='Binary')
+    # Run assuming RoO compliance (CTH met via imported API) and Year 1 Phase Down (0.01 reduction)
+    res = run_deterministic_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant=True, afcfta_phase_down=0.01)
     
-    # Vectorized dictionary generation for memory efficiency
-    indices = [(i, j, t, s) for i in hubs for j in markets for t in years for s in range(n_scenarios)]
-    X_MFN = pulp.LpVariable.dicts("Ship_MFN", indices, lowBound=0)
-    X_RoO = pulp.LpVariable.dicts("Ship_RoO", indices, lowBound=0)
+    print(f"Solver Status: {res['Status']}")
+    print(f"Optimal Factory Location: {res['Selected_Hub']}")
+    print(f"Total Minimized Cost: ${res['Objective_Value_Millions']:.2f}M")
+
+#*****************************************************************************************************************************
+
+# Streamlit App   
+
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(page_title="AfCFTA Pharma Optimizer", layout="wide", initial_sidebar_state="expanded")
+
+# --- 2. BACKEND MILP LOGIC ---
+@st.cache_data
+def load_base_parameters():
+    # Load the CSVs directly from the local repository folder
+    wacc_df = pd.read_csv("data/ea_wacc_parameters.csv")
+    gravity_df = pd.read_csv("data/ea_gravity_matrix.csv")
+    friction_df = pd.read_csv("data/ea_friction_matrix.csv")
+
+    nodes = ['Kenya', 'Tanzania', 'Uganda', 'Rwanda', 'Ethiopia']
+
+    # 1. MFN Tariffs (0% EAC, 5% Ethiopia)
+    mfn_tariffs = {n: 0.0 for n in nodes}
+    mfn_tariffs['Ethiopia'] = 0.05 
+
+    # 2. Hurdle Rates (Damodaran CAPM logic: Rf + ERP + CRP)
+    rf, erp_mature = 0.04, 0.05
+    crp_dict = dict(zip(wacc_df['Country'], wacc_df['Country Risk Premium']))
+    hurdle_rates = {n: rf + erp_mature + crp_dict.get(n, 0.10) for n in nodes}
+
+    # 3. Logistics Friction Matrix (ESCAP)
+    friction_matrix = {}
+    for _, row in friction_df.iterrows():
+        friction_matrix[(row['Origin'], row['Destination'])] = row['Ad_Valorem_Cost']
+    for n in nodes:
+        friction_matrix[(n, n)] = 1.0 # No domestic border friction
+
+    # 4. Base Demand (CEPII Economic Mass - scaled for model stability)
+    iso_map = {'KEN': 'Kenya', 'TZA': 'Tanzania', 'UGA': 'Uganda', 'RWA': 'Rwanda', 'ETH': 'Ethiopia'}
+    # Map ISO codes to country names and scale GDP for baseline unit demand
+    gravity_df['Country'] = gravity_df['iso3_d'].map(iso_map)
     
-    # Objective Construction
-    expected_npv_opex = []
-    for s in range(n_scenarios):
-        for t in years:
-            for i in hubs:
-                discount_factor = (1 + wacc[i]) ** t
-                for j in markets:
-                    freight_cost = base_freight[i][j] * scenarios[s][j]
-                    
-                    tariff_mfn = 0 if i == j else 0.25 * bom_imported
-                    tariff_roo = 0 
-                    cost_mfn = (bom_imported + freight_cost + tariff_mfn) * (1 + time_tax[i])
-                    cost_roo = (bom_local + freight_cost + tariff_roo) * (1 + time_tax[i])
-                    
-                    expected_npv_opex.append((cost_mfn / discount_factor / n_scenarios) * X_MFN[(i, j, t, s)])
-                    expected_npv_opex.append((cost_roo / discount_factor / n_scenarios) * X_RoO[(i, j, t, s)])
-                    
-    capex_total = pulp.lpSum([npv_capex[i] * (Y_MFN[i] + Y_RoO[i]) for i in hubs])
-    model += capex_total + pulp.lpSum(expected_npv_opex)
+    # Take unique destination GDPs for the latest year available in the cleaned matrix
+    demand_subset = gravity_df.drop_duplicates(subset=['Country'])
+    base_demand = dict(zip(demand_subset['Country'], demand_subset['gdp_d'] * 0.0001))
+
+    # Lat/Lon for Plotly Map
+    coords = {
+        'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
+        'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
+        'Ethiopia': (9.1450, 40.4897)
+    }
+
+    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords
+
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down):
+    model = pulp.LpProblem("AfCFTA_Pharma_CapEx", pulp.LpMinimize)
+
+    capex_cost = 50.0 
+    production_cost = 0.2
+
+    y = pulp.LpVariable.dicts("Hub", nodes, cat='Binary')
+    x = pulp.LpVariable.dicts("Route", [(i, j) for i in nodes for j in nodes], lowBound=0, cat='Continuous')
+
+    effective_tariffs = {}
+    for i in nodes:
+        for j in nodes:
+            if i == j:
+                effective_tariffs[(i, j)] = 0.0
+            elif roo_compliant:
+                effective_tariffs[(i, j)] = max(0, mfn_tariffs[j] - afcfta_phase_down)
+            else:
+                effective_tariffs[(i, j)] = mfn_tariffs[j]
+
+    # Objective
+    total_capex = pulp.lpSum([y[i] * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
+    total_ops = pulp.lpSum([x[(i, j)] * (production_cost * friction_matrix.get((i, j), 2.0) * (1 + effective_tariffs[(i, j)])) for i in nodes for j in nodes])
+    
+    model += total_capex + total_ops
 
     # Constraints
-    for i in hubs:
-        model += Y_MFN[i] + Y_RoO[i] <= 1 
-
-    for s in range(n_scenarios):
-        for t in years:
-            for j in markets:
-                # 1. Demand Satisfaction
-                model += pulp.lpSum([X_MFN[(i, j, t, s)] + X_RoO[(i, j, t, s)] for i in hubs]) >= demand_matrix[(j, t, s)]
-                
-                # 2. Hard FX Constraint
-                fx_drain = []
-                for i in hubs:
-                    if i != j:
-                        f_cost = base_freight[i][j] * scenarios[s][j]
-                        fx_drain.append((bom_imported + f_cost) * X_MFN[(i, j, t, s)])
-                        fx_drain.append((bom_local + f_cost) * X_RoO[(i, j, t, s)])
-                if fx_drain:
-                    model += pulp.lpSum(fx_drain) <= fx_capacity[j]
-
-    for s in range(n_scenarios):
-        for t in years:
-            for i in hubs:
-                # 3. Capacity Constraints
-                model += pulp.lpSum([X_MFN[(i, j, t, s)] for j in markets]) <= capacity[i] * Y_MFN[i]
-                model += pulp.lpSum([X_RoO[(i, j, t, s)] for j in markets]) <= capacity[i] * Y_RoO[i]
-
-    model += pulp.lpSum([Y_MFN[i] + Y_RoO[i] for i in hubs]) >= 1
+    for j in nodes:
+        model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand[j]
+    for i in nodes:
+        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * 10000
+    model += pulp.lpSum([y[i] for i in nodes]) == 1
 
     model.solve(pulp.PULP_CBC_CMD(msg=False))
-    
-    # Cleanup for memory
-    del expected_npv_opex
-    gc.collect()
-    
-    if pulp.LpStatus[model.status] == 'Optimal':
-        config = []
-        for i in hubs:
-            if Y_MFN[i].varValue == 1.0: config.append(f"{i} (Global Sourcing MFN)")
-            elif Y_RoO[i].varValue == 1.0: config.append(f"{i} (AfCFTA Regional RoO)")
-        return pulp.value(model.objective), config
-    return None, None
 
-# --- 4. STREAMLIT FRONTEND ---
-st.set_page_config(page_title="AfCFTA CapEx Optimizer", layout="wide")
-st.title("AfCFTA Multi-Period Stochastic Optimizer (PPML Edition)")
-st.markdown("Integrates deep credit WACC, PPML zero-trade DGP, Fat-Tailed Scenarios, and Policy Phase-Downs.")
-
-c1, c2 = st.sidebar.columns(2)
-volatility = st.sidebar.slider("Log-Normal Volatility (\u03C3)", 0.0, 0.80, 0.20, 0.05)
-n_scenarios = st.sidebar.number_input("SAA Scenarios", min_value=10, max_value=200, value=25, step=5)
-
-if st.sidebar.button("Execute Capital Allocation"):
-    with st.spinner(f'Solving Multi-Period Matrix with {n_scenarios} fat-tailed scenarios...'):
-        obj_val, config = run_dynamic_saa_model(volatility, n_scenarios)
+    routing = {(i, j): x[(i, j)].varValue for i in nodes for j in nodes if x[(i, j)].varValue > 0}
+    hub = [i for i in nodes if y[i].varValue == 1.0][0]
     
-    if config:
-        st.success("Mathematical Optimum Located")
-        st.metric(label="Total Expected NPV (CapEx + 5yr OpEx, USD Millions)", value=f"${obj_val:,.2f}")
-        st.write("### Recommended Capital Deployment:")
-        for c in config:
-            st.markdown(f"- **{c}**")
-    else:
-        st.error("Infeasible. FX constraints breached under severe scenario shocks. Cannot fulfill demand.")
+    # Calculate distinct costs for the charts
+    capex_val = capex_cost * (1 + hurdle_rates[hub])
+    ops_val = pulp.value(total_ops)
+
+    return pulp.LpStatus[model.status], hub, pulp.value(model.objective), capex_val, ops_val, routing
+
+#**********************************************************************************************
+
+# --- 3. FRONTEND UI ---
+st.title("AfCFTA Pharmaceutical Supply Chain SAA Model")
+st.markdown("---")
+
+nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords = load_base_parameters()
+
+# Sidebar Constraints
+with st.sidebar:
+    st.header("Model Constraints")
+    roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True, help="Toggles the MFN penalty pathway.")
+    afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
+    st.markdown("---")
+    st.write("**Base Assumptions:**")
+    st.write("CapEx: $50M")
+    st.write("Target HS: 300490")
+
+# Run Solver
+status, hub, total_cost, capex_val, ops_val, routing = run_milp(
+    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down
+)
+
+# --- 4. EXECUTIVE KPIs ---
+col1, col2, col3, col4 = st.columns(4)
+col1.metric(label="Optimal Factory Location", value=hub)
+col2.metric(label="Total Network NPV", value=f"${total_cost:.2f}M")
+col3.metric(label="Risk-Adjusted CapEx", value=f"${capex_val:.2f}M")
+col4.metric(label="Logistics & Tariffs", value=f"${ops_val:.2f}M")
+st.markdown("---")
+
+# --- 5. VISUALIZATIONS ---
+viz_col1, viz_col2 = st.columns([2, 1])
+
+with viz_col1:
+    st.subheader("Optimized Trade Routing")
+    
+    # Build Map
+    fig_map = go.Figure()
+    
+    # Add Hub Marker
+    fig_map.add_trace(go.Scattergeo(
+        lon=[coords[hub][1]], lat=[coords[hub][0]],
+        mode='markers+text', text=[f"{hub} (Hub)"], textposition="bottom center",
+        marker=dict(size=14, color='red', symbol='star'), name='Factory'
+    ))
+    
+    # Add Nodes and Lines
+    for (orig, dest), vol in routing.items():
+        if orig != dest:
+            fig_map.add_trace(go.Scattergeo(
+                lon=[coords[orig][1], coords[dest][1]],
+                lat=[coords[orig][0], coords[dest][0]],
+                mode='lines', line=dict(width=vol/20, color='blue'),
+                opacity=0.6, name=f"To {dest}"
+            ))
+            fig_map.add_trace(go.Scattergeo(
+                lon=[coords[dest][1]], lat=[coords[dest][0]],
+                mode='markers+text', text=[dest], textposition="bottom center",
+                marker=dict(size=8, color='blue'), name=dest
+            ))
+
+    fig_map.update_layout(
+        geo_scope='africa',
+        geo=dict(center=dict(lat=2.0, lon=35.0), projection_scale=4.5),
+        margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=False
+    )
+    st.plotly_chart(fig_map, use_container_width=True)
+
+with viz_col2:
+    st.subheader("Cost Breakdown")
+    fig_bar = px.bar(
+        x=["CapEx (Risk Adjusted)", "Ops, Tariffs & Friction"], 
+        y=[capex_val, ops_val], 
+        labels={'x': 'Cost Category', 'y': 'Millions (USD)'},
+        color=["CapEx", "Ops"], color_discrete_sequence=['#ef553b', '#636efa']
+    )
+    fig_bar.update_layout(showlegend=False)
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.subheader("Route Volumes")
+    route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items()])
+    st.dataframe(route_df.style.format({"Volume": "{:.1f}"}), hide_index=True)
+
+
