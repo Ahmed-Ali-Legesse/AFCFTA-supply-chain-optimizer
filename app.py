@@ -50,7 +50,7 @@ def load_base_parameters():
         'Ethiopia': (9.1450, 40.4897)
     }
 
-    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords
+    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords = load_base_parameters()
 
 #********************************************************************************
 # --- 2. MILP SOLVER INITIALIZATION ---
