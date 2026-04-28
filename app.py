@@ -199,10 +199,17 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
         model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * 10000
     model += pulp.lpSum([y[i] for i in nodes]) == 1
 
-    model.solve(pulp.PULP_CBC_CMD(msg=False))
+    odel.solve(pulp.PULP_CBC_CMD(msg=False))
+    
+    # 1. Safety check: Did the solver actually find a valid solution?
+    if pulp.LpStatus[model.status] != 'Optimal':
+        return pulp.LpStatus[model.status], "No Solution", 0.0, 0.0, 0.0, {}
 
-    routing = {(i, j): x[(i, j)].varValue for i in nodes for j in nodes if x[(i, j)].varValue > 0}
-    hub = [i for i in nodes if y[i].varValue == 1.0][0]
+    # 2. Extract routing, handling None types
+    routing = {(i, j): x[(i, j)].varValue for i in nodes for j in nodes if x[(i, j)].varValue is not None and x[(i, j)].varValue > 0.001}
+    # 3. Extract the hub using a > 0.5 threshold instead of strict == 1.0
+    hub_list = [i for i in nodes if y[i].varValue is not None and y[i].varValue > 0.5]
+    hub = hub_list[0] if hub_list else "Error"
     
     # Calculate distinct costs for the charts
     capex_val = capex_cost * (1 + hurdle_rates[hub])
