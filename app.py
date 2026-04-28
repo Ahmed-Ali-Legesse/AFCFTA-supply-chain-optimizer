@@ -102,7 +102,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     # 4. Single Hub Limit
     model += pulp.lpSum([y[i] for i in nodes]) == 1
 
-    model.solve(pulp.PULP_CBC_CMD(msg=False)
+    model.solve(pulp.PULP_CBC_CMD(msg=False))
     
     if pulp.LpStatus[model.status] != 'Optimal':
         return pulp.LpStatus[model.status], "No Solution", 0.0, 0.0, 0.0, {}
