@@ -33,8 +33,18 @@ def load_base_parameters():
     gravity_df['Country'] = gravity_df['iso3_d'].map(iso_map)
     
     demand_subset = gravity_df.dropna(subset=['Country', 'gdp_d']).drop_duplicates(subset=['Country'])
-    base_demand = dict(zip(demand_subset['Country'], demand_subset['gdp_d'].astype(float) * 0.0001))
-
+    # 1. Set a realistic annual market demand for a $50M factory (e.g., 250 Million units)
+    target_demand_millions = 250.0 
+    
+    # 2. Calculate the total GDP of the 5 countries to find their relative weight
+    total_gdp = demand_subset['gdp_d'].astype(float).sum()
+    
+    # 3. Distribute the 250M units proportionally based on economic mass
+    base_demand = {}
+    for _, row in demand_subset.iterrows():
+        country = row['Country']
+        weight = float(row['gdp_d']) / total_gdp
+        base_demand[country] = weight * target_demand_millions
     coords = {
         'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
         'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
@@ -72,7 +82,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     for j in nodes:
         model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand[j]
         
-    big_m = 1_000_000_000 
+    big_m = 1000.0
     for i in nodes:
         model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * big_m
         
