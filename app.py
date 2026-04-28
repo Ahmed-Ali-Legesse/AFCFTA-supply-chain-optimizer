@@ -116,15 +116,11 @@ if hub == "No Solution" or status != 'Optimal':
     st.error(f"The solver could not find a valid supply chain network. Status: {status}")
     st.stop()
 
-# Calculate significance (percentage of total cost)
-capex_pct = (capex_val / total_cost) * 100 if total_cost > 0 else 0
-ops_pct = (ops_val / total_cost) * 100 if total_cost > 0 else 0
-
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(label="Optimal Factory Location", value=hub)
-col2.metric(label="Total Network NPV", value=f"${total_cost:,.2f}M")
-col3.metric(label="Risk-Adjusted CapEx", value=f"${capex_val:,.2f}M", delta=f"{capex_pct:.1f}% of Total Cost", delta_color="off")
-col4.metric(label="Logistics & Tariffs", value=f"${ops_val:,.2f}M", delta=f"{ops_pct:.1f}% of Total Cost", delta_color="off")
+col1.metric(label="Optimal Hub", value=hub)
+col2.metric(label="Total Network NPV", value=f"${total_cost:,.1f}M")
+col3.metric(label="Risk-Adjusted CapEx", value=f"${capex_val:,.1f}M")
+col4.metric(label="Logistics & Tariffs", value=f"${ops_val:,.1f}M")
 st.markdown("---")
 
 viz_col1, viz_col2 = st.columns([2, 1])
@@ -165,17 +161,14 @@ with viz_col1:
 with viz_col2:
     st.subheader("Cost Breakdown")
     fig_bar = px.bar(
-        x=["CapEx (Risk Adjusted)", "Ops, Tariffs & Friction"], 
+        x=["CapEx", "OpEx"], 
         y=[capex_val, ops_val], 
         labels={'x': '', 'y': 'Millions (USD)'},
-        color=["CapEx", "Ops"], color_discrete_sequence=['#ef553b', '#636efa']
+        color=["CapEx", "OpEx"], color_discrete_sequence=['#ef553b', '#636efa']
     )
-    # Add exact numbers on top of the bars for quick reading
-    fig_bar.update_traces(texttemplate='$%{y:,.2f}M', textposition='outside')
-    fig_bar.update_layout(showlegend=False, yaxis_range=[0, max(capex_val, ops_val) * 1.2])
+    fig_bar.update_layout(showlegend=False)
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    st.subheader("Route Volumes (Units)")
+    st.subheader("Route Volumes")
     route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items()])
-    # Add comma separation to volume numbers so they aren't a wall of digits
-    st.dataframe(route_df.style.format({"Volume": "{:,.1f}"}), hide_index=True)
+    st.dataframe(route_df.style.format({"Volume": "{:,.0f}"}), hide_index=True)
