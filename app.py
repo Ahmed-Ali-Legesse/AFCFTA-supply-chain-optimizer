@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 #***************************************************
 # --- 1. DATA INGESTION & DICTIONARY INITIALIZATION ---
-@st.cache_data
+#@st.cache_data
 def load_base_parameters():
     # 1. Load the CSVs directly from the local repository folder
     wacc_df = pd.read_csv("data/ea_wacc_parameters.csv")
