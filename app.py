@@ -97,11 +97,10 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
 
     for t in years:
         for j in nodes:
-            model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]
-            
+            model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]    
         for i in nodes:
-        model += pulp.lpSum([x[(i, j, t)] for j in nodes for t in years]) <= y[i] * effective_max_capacity * len(years)
-        model += pulp.lpSum([y[i] for i in nodes]) == 1
+            model += pulp.lpSum([x[(i, j, t)] for j in nodes for t in years]) <= y[i] * effective_max_capacity * len(years)
+            model += pulp.lpSum([y[i] for i in nodes]) == 1
     
     # 5. FORCE HUB FOR COMPARATIVE ANALYSIS
     if forced_hub:
