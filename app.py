@@ -147,7 +147,7 @@ with st.sidebar:
         help="Simulates ETB devaluation and USD shortage. 0.2 = Severe Devaluation/No USD access.")
     st.markdown("---")
     st.header("Unit Economics")
-    selling_price = st.slider("Wholesale Selling Price per pill ($)", min_value=0.05, max_value=0.50, value=0.21, step=0.01)
+    selling_price = st.slider("Wholesale Selling Price per pill ($)", min_value=0.05, max_value=0.50, value=0.28, step=0.01)
     base_prod_cost = st.slider("Target Production Cost per pill ($)", min_value=0.03, max_value=0.20, value=0.07, step=0.01)
     target_volume = st.slider("Target Annual Volume (Millions)", min_value=50.0, max_value=600.0, value=300.0, step=10.0)
     st.markdown("---")
