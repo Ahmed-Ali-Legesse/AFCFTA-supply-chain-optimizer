@@ -171,8 +171,7 @@ base_demand = {country: weight * target_volume for country, weight in gdp_weight
 # 1. Run the solver silently without forcing a hub to find the true mathematical optimum
 _, true_optimal_hub, _, _, _, _, _ = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,
-    friction_multiplier,
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,friction_multiplier,
     forced_hub=None
 )
 
