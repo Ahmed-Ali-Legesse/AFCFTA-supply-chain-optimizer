@@ -54,20 +54,25 @@ def load_base_parameters():
     return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords
 
 # --- 3. MILP SOLVER ---
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down):
-    model = pulp.LpProblem("AfCFTA_Pharma_CapEx", pulp.LpMinimize)
+# 1. Update the function signature
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost):
+    model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
-    production_cost = {
-        "Year_1": 0.10,
-        "Year_2": 0.09,
-        "Year_3": 0.08,
-        "Year_4": 0.07,
-        "Year_5": 0.07
+    years = ["Year_1", "Year_2", "Year_3", "Year_4", "Year_5"]
+    
+    # 2. Dynamically build the learning curve based on the slider
+    # Year 1 adds +3 cents for commissioning chaos, Year 2 adds +2 cents, etc.
+    production_cost_curve = {
+        "Year_1": base_prod_cost + 0.03,
+        "Year_2": base_prod_cost + 0.02,
+        "Year_3": base_prod_cost + 0.01,
+        "Year_4": base_prod_cost,
+        "Year_5": base_prod_cost
     }
 
     y = pulp.LpVariable.dicts("Hub", nodes, cat='Binary')
-    x = pulp.LpVariable.dicts("Route", [(i, j) for i in nodes for j in nodes], lowBound=0, cat='Continuous')
+    x = pulp.LpVariable.dicts("Route", [(i, j, t) for i in nodes for j in nodes for t in years], lowBound=0, cat='Continuous')
 
     effective_tariffs = {}
     for i in nodes:
@@ -80,41 +85,59 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
                 effective_tariffs[(i, j)] = mfn_tariffs[j]
 
     total_capex = pulp.lpSum([y[i] * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
-    total_ops = pulp.lpSum([x[(i, j)] * (production_cost * friction_matrix.get((i, j), 2.0) * (1 + effective_tariffs[(i, j)])) for i in nodes for j in nodes])
     
-    model += total_capex + total_ops
+    total_ops = pulp.lpSum([
+        x[(i, j, t)] * (production_cost_curve[t] * friction_matrix.get((i, j), 2.0) * (1 + effective_tariffs[(i, j)])) 
+        for i in nodes for j in nodes for t in years
+    ])
+    
+    # 3. Apply the slider's selling price to the revenue calculation
+    total_revenue = pulp.lpSum([
+        x[(i, j, t)] * selling_price 
+        for i in nodes for j in nodes for t in years
+    ])
+    
+    model += total_revenue - total_capex - total_ops
 
-    # Constraints
-   # 1. Demand Fulfillment
-    for j in nodes:
-        model += pulp.lpSum([x[(i, j)] for i in nodes]) >= base_demand[j]
-        
-    # 2. Minimum Viability Floor (Factory must produce >= 405M units if built)
+    # ... [Keep the rest of the constraint and return logic exactly the same] ...
+
+    # --- 5-YEAR CONSTRAINTS ---
     min_volume = 405.0 
-    for i in nodes:
-        model += pulp.lpSum([x[(i, j)] for j in nodes]) >= y[i] * min_volume
-        
-    # 3. Installed Capacity Limit (Sansheng Phase I max capacity: 5 Billion units)
     max_capacity = 5000.0 
-    for i in nodes:
-        model += pulp.lpSum([x[(i, j)] for j in nodes]) <= y[i] * max_capacity
-        
-    # 4. Single Hub Limit
+
+    for t in years:
+        for j in nodes:
+            # 3. Market Cap: The factory MUST meet demand, but CANNOT exceed what the market absorbs
+            model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]
+            
+        for i in nodes:
+            model += pulp.lpSum([x[(i, j, t)] for j in nodes]) >= y[i] * min_volume
+            model += pulp.lpSum([x[(i, j, t)] for j in nodes]) <= y[i] * max_capacity
+            
     model += pulp.lpSum([y[i] for i in nodes]) == 1
 
     model.solve(pulp.PULP_CBC_CMD(msg=False))
-    
-    if pulp.LpStatus[model.status] != 'Optimal':
-        return pulp.LpStatus[model.status], "No Solution", 0.0, 0.0, 0.0, {}
 
-    routing = {(i, j): x[(i, j)].varValue for i in nodes for j in nodes if x[(i, j)].varValue is not None and x[(i, j)].varValue > 0.001}
-    hub_list = [i for i in nodes if y[i].varValue is not None and y[i].varValue > 0.5]
-    hub = hub_list[0] if hub_list else "Error"
+    status = pulp.LpStatus[model.status]
+    if status != 'Optimal':
+        return status, "No Solution", 0, 0, 0, 0, {}
+
+    hub = [i for i in nodes if y[i].varValue and y[i].varValue > 0.5][0]
     
-    capex_val = capex_cost * (1 + hurdle_rates[hub])
+    # Extract the final dollar values
+    capex_val = sum([y[i].varValue * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
     ops_val = pulp.value(total_ops)
+    rev_val = pulp.value(total_revenue)
+    profit_val = rev_val - capex_val - ops_val
 
-    return pulp.LpStatus[model.status], hub, pulp.value(model.objective), capex_val, ops_val, routing
+    routing = {}
+    for i in nodes:
+        for j in nodes:
+            total_vol = sum(x[(i, j, t)].varValue for t in years if x[(i, j, t)].varValue is not None)
+            if total_vol > 0:
+                routing[(i, j)] = total_vol / len(years)
+
+    return status, hub, profit_val, rev_val, capex_val, ops_val, routing routing
 
 
 # --- 4. FRONTEND UI ---
@@ -125,26 +148,38 @@ nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords = load_ba
 
 with st.sidebar:
     st.header("Model Constraints")
-    roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True, help="Toggles the MFN penalty pathway.")
+  with st.sidebar:
+    st.header("Model Constraints")
+    roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True)
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
+    st.markdown("---")
+    st.header("Unit Economics")
+    # New sliders for the executives
+    selling_price = st.slider("Wholesale Selling Price ($)", min_value=0.05, max_value=0.50, value=0.14, step=0.01)
+    base_prod_cost = st.slider("Target Production Cost ($)", min_value=0.03, max_value=0.20, value=0.07, step=0.01)
+    st.markdown("---")
     st.write("**Base Assumptions:**")
     st.write("CapEx: $85M (WHO-GMP Compliant)")
     st.write("Minimum Volume: 405M Units")
     st.write("Target HS: 300490")
 
-status, hub, total_cost, capex_val, ops_val, routing = run_milp(
-    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down
+# Pass the new slider variables to the engine
+status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
+    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost
 )
 
 if hub == "No Solution" or status != 'Optimal':
     st.error(f"The solver could not find a valid supply chain network. Status: {status}")
     st.stop()
 
-col1, col2, col3, col4 = st.columns(4)
+# Build out a 5-column dashboard to show the P&L
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric(label="Optimal Hub", value=hub)
-col2.metric(label="Total Network NPV", value=f"${total_cost:,.1f}M")
-col3.metric(label="Risk-Adjusted CapEx", value=f"${capex_val:,.1f}M")
-col4.metric(label="Logistics & Tariffs", value=f"${ops_val:,.1f}M")
+col2.metric(label="5-Year Net Profit", value=f"${profit_val:,.1f}M")
+col3.metric(label="5-Year Gross Rev", value=f"${rev_val:,.1f}M")
+col4.metric(label="Risk-Adj CapEx", value=f"${capex_val:,.1f}M")
+col5.metric(label="5-Year Cum. OpEx", value=f"${ops_val:,.1f}M")
 st.markdown("---")
 
 viz_col1, viz_col2 = st.columns([2, 1])
