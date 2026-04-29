@@ -85,7 +85,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
         for i in nodes for j in nodes for t in years
     ])
     
-   total_revenue = pulp.lpSum([
+    total_revenue = pulp.lpSum([
         x[(i, j, t)] * selling_price * forex_liquidity 
         for i in nodes for j in nodes for t in ["Year_1", "Year_2", "Year_3", "Year_4", "Year_5"]
     ])
