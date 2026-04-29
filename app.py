@@ -3,6 +3,8 @@ import pulp
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
+import folium
+from streamlit_folium import st_folium
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="AfCFTA Pharma Optimizer", layout="wide", initial_sidebar_state="expanded")
@@ -98,8 +100,6 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     
     model += total_revenue - total_capex - total_ops
 
-    # ... [Keep the rest of the constraint and return logic exactly the same] ...
-
     # --- 5-YEAR CONSTRAINTS ---
     min_volume = target_volume 
     max_capacity = 5000.0 
@@ -192,35 +192,70 @@ viz_col1, viz_col2 = st.columns([2, 1])
 with viz_col1:
     st.subheader("Optimized Trade Routing")
     
-    fig_map = go.Figure()
-    
-    fig_map.add_trace(go.Scattergeo(
-        lon=[coords[hub][1]], lat=[coords[hub][0]],
-        mode='markers+text', text=[f"{hub} (Hub)"], textposition="bottom center",
-        marker=dict(size=14, color='red', symbol='star'), name='Factory'
-    ))
-    
-    for (orig, dest), vol in routing.items():
-        if orig != dest:
-            fig_map.add_trace(go.Scattergeo(
-                lon=[coords[orig][1], coords[dest][1]],
-                lat=[coords[orig][0], coords[dest][0]],
-                mode='lines', line=dict(width=vol/20, color='blue'),
-                opacity=0.6, name=f"To {dest}"
-            ))
-            fig_map.add_trace(go.Scattergeo(
-                lon=[coords[dest][1]], lat=[coords[dest][0]],
-                mode='markers+text', text=[dest], textposition="bottom center",
-                marker=dict(size=8, color='blue'), name=dest
-            ))
+    # 1. Calculate maximum volume for dynamic line thickness
+    max_route_vol = max([vol for (u, v), vol in routing.items() if vol > 0], default=1)
 
-    fig_map.update_layout(
-        geo_scope='africa',
-        geo=dict(center=dict(lat=2.0, lon=35.0), projection_scale=4.5),
-        margin=dict(l=0, r=0, t=0, b=0),
-        showlegend=False
+    # 2. Initialize the clean CartoDB map
+    hub_lat, hub_lon = coords[hub]
+    m = folium.Map(location=[hub_lat, hub_lon], zoom_start=4, tiles="CartoDB positron")
+
+    # 3. Draw the dynamic shipping lines
+    for (u, v), vol in routing.items():
+        if vol > 0.1 and u != v:  # Only draw active external routes
+            start_loc = coords[u]
+            end_loc = coords[v]
+            
+            line_weight = max(2.0, (vol / max_route_vol) * 10.0)
+            
+            folium.PolyLine(
+                locations=[start_loc, end_loc],
+                weight=line_weight,
+                color="#004c6d",  # Professional corporate blue
+                opacity=0.7,
+                tooltip=f"<b>Route:</b> {u} ➔ {v}<br><b>Volume:</b> {vol:,.1f} Million Units"
+            ).add_to(m)
+
+    # 4. Draw the Hub and Nodes
+    for node, coord in coords.items():
+        if node == hub:
+            folium.Marker(
+                location=coord,
+                tooltip=f"<b>MANUFACTURING HUB: {node}</b><br>WHO-GMP CapEx: $85M",
+                icon=folium.Icon(color="red", icon="star", prefix="fa")
+            ).add_to(m)
+        else:
+            received_vol = sum([vol for (u, v), vol in routing.items() if v == node])
+            if received_vol > 0:
+                folium.CircleMarker(
+                    location=coord,
+                    radius=6,
+                    color="#00A36C",
+                    fill=True,
+                    fillOpacity=1.0,
+                    tooltip=f"<b>Target Market:</b> {node}<br><b>Inbound:</b> {received_vol:,.1f} Million Units"
+                ).add_to(m)
+
+    # 5. Render the map inside the Streamlit column
+    st_folium(m, use_container_width=True, height=500)
+
+with viz_col2:
+    st.subheader("5-Year Financial P&L")
+    
+    # Upgraded Plotly Bar Chart to show the full financial picture
+    fig_bar = px.bar(
+        x=["Gross Rev", "OpEx", "CapEx", "Net Profit"], 
+        y=[rev_val, ops_val, capex_val, profit_val], 
+        labels={'x': '', 'y': 'Millions (USD)'},
+        color=["Gross Rev", "OpEx", "CapEx", "Net Profit"], 
+        color_discrete_sequence=['#2ca02c', '#636efa', '#ef553b', '#ff7f0e']
     )
-    st.plotly_chart(fig_map, use_container_width=True)
+    fig_bar.update_layout(showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.subheader("Route Volumes")
+    # Cleaned up the dataframe to only show active routes
+    route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items() if v > 0.1])
+    st.dataframe(route_df.style.format({"Volume": "{:,.1f}M"}), hide_index=True, use_container_width=True)
 
 with viz_col2:
     st.subheader("Cost Breakdown")
