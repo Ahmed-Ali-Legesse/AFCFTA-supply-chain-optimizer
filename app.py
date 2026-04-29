@@ -35,35 +35,28 @@ def load_base_parameters():
     gravity_df['Country'] = gravity_df['iso3_d'].map(iso_map)
     
     demand_subset = gravity_df.dropna(subset=['Country', 'gdp_d']).drop_duplicates(subset=['Country'])
-    # 1. Set a realistic annual market demand for a $50M factory (e.g., 500 Million units)
-    target_demand_millions = 500.0 
-    
-    # 2. Calculate the total GDP of the 5 countries to find their relative weight
     total_gdp = demand_subset['gdp_d'].astype(float).sum()
     
-    # 3. Distribute the 250M units proportionally based on economic mass
     gdp_weights = {}
     for _, row in demand_subset.iterrows():
         country = row['Country']
         gdp_weights[country] = float(row['gdp_d']) / total_gdp
+        
     coords = {
         'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
         'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
         'Ethiopia': (9.1450, 40.4897)
     }
 
-    return nodes, mfn_tariffs, hurdle_rates, friction_matrix,gdp_weights, coords
+    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, gdp_weights, coords
 
 # --- 3. MILP SOLVER ---
-# 1. Update the function signature
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost,target_volume,forced_hub=None):
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, forced_hub=None):
     model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
     years = ["Year_1", "Year_2", "Year_3", "Year_4", "Year_5"]
     
-    # 2. Dynamically build the learning curve based on the slider
-    # Year 1 adds +3 cents for commissioning chaos, Year 2 adds +2 cents, etc.
     production_cost_curve = {
         "Year_1": base_prod_cost + 0.03,
         "Year_2": base_prod_cost + 0.02,
@@ -92,7 +85,6 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
         for i in nodes for j in nodes for t in years
     ])
     
-    # 3. Apply the slider's selling price to the revenue calculation
     total_revenue = pulp.lpSum([
         x[(i, j, t)] * selling_price 
         for i in nodes for j in nodes for t in years
@@ -109,11 +101,11 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
             model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]
             
         for i in nodes:
-            # The factory must produce the target volume
             model += pulp.lpSum([x[(i, j, t)] for j in nodes]) >= y[i] * min_volume
             model += pulp.lpSum([x[(i, j, t)] for j in nodes]) <= y[i] * max_capacity
             
     model += pulp.lpSum([y[i] for i in nodes]) == 1
+    
     # 5. FORCE HUB FOR COMPARATIVE ANALYSIS
     if forced_hub:
         model += y[forced_hub] == 1
@@ -126,7 +118,6 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
 
     hub = [i for i in nodes if y[i].varValue and y[i].varValue > 0.5][0]
     
-    # Extract the final dollar values
     capex_val = sum([y[i].varValue * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
     ops_val = pulp.value(total_ops)
     rev_val = pulp.value(total_revenue)
@@ -146,16 +137,12 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
 st.title("AfCFTA Pharmaceutical Supply Chain SAA Model")
 st.markdown("---")
 
-nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords = load_base_parameters()
-
-
 with st.sidebar:
     st.header("Model Constraints")
     roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True)
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
     st.markdown("---")
     st.header("Unit Economics")
-    # sliders for price,cost,vol
     selling_price = st.slider("Wholesale Selling Price ($)", min_value=0.05, max_value=0.50, value=0.14, step=0.01)
     base_prod_cost = st.slider("Target Production Cost ($)", min_value=0.03, max_value=0.20, value=0.07, step=0.01)
     target_volume = st.slider("Target Annual Volume (Millions)", min_value=50.0, max_value=600.0, value=300.0, step=10.0)
@@ -165,54 +152,76 @@ with st.sidebar:
     st.write("Minimum Volume: 405M Units")
     st.write("Target HS: 300490")
     
-# 2. Load the cached baseline data (Notice we are unpacking 'gdp_weights' now)
+# Load the cached baseline data 
 nodes, mfn_tariffs, hurdle_rates, friction_matrix, gdp_weights, coords = load_base_parameters()
 
-# 3. Dynamically apply the slider volume to the cached weights
+# Dynamically apply the slider volume to the cached weights
 base_demand = {country: weight * target_volume for country, weight in gdp_weights.items()}
 
-#  Run the MILP engine
+
+# --- THE SILENT RUN & DROPDOWN ARCHITECTURE ---
+
+# 1. Run the solver silently without forcing a hub to find the true mathematical optimum
+_, true_optimal_hub, _, _, _, _, _ = run_milp(
+    nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, 
+    forced_hub=None
+)
+
+# 2. Announce the winner, but give the user control to simulate any country
+st.success(f"🏆 Algorithm Recommendation: **{true_optimal_hub}** is mathematically the most cost-effective hub location.")
+
+selected_hub = st.selectbox(
+    "Select a country below to simulate the factory network and view its specific financial impact:", 
+    options=nodes, 
+    index=nodes.index(true_optimal_hub) # Automatically defaults to the true optimal winner
+)
+
+# 3. Rerun the solver forcing their selected hub
 status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,
+    forced_hub=selected_hub
 )
 
 if hub == "No Solution" or status != 'Optimal':
-    st.error(f"The solver could not find a valid supply chain network. Status: {status}")
+    st.error(f"The solver could not build a viable network from {selected_hub}.")
     st.stop()
 
-# 2. Calculate the Optimal Hub's Break-Even Price 
-# Formula: (CapEx + 5-Year OpEx) / (Annual Volume * 5 Years)
+
+# --- THE DASHBOARD METRICS ---
+
+# Calculate the Selected Hub's Break-Even Price 
 five_year_volume = target_volume * 5.0
-opt_bep = (capex_val + ops_val) / five_year_volume
+hub_bep = (capex_val + ops_val) / five_year_volume
 
-# ---> THIS IS THE LINE YOU ARE LIKELY MISSING <---
 col1, col2, col3, col4, col5, col6 = st.columns(6)
+col1.metric(label="Simulated Hub", value=hub)
+col2.metric(label="Break-Even Price", value=f"${hub_bep:.3f}")
 
-# Now it knows where to put the data
-col1.metric(label="Optimal Hub", value=hub)
-col2.metric(label="Break-Even Price", value=f"${opt_bep:.3f}")
-col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M")
+# Turn Profit red if it operates at a deficit
+delta_color = "normal" if profit_val > 0 else "inverse"
+col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M", delta="Deficit" if profit_val < 0 else None, delta_color=delta_color)
+
 col4.metric(label="Gross Rev", value=f"${rev_val:,.1f}M")
 col5.metric(label="CapEx", value=f"${capex_val:,.1f}M")
 col6.metric(label="5-Yr OpEx", value=f"${ops_val:,.1f}M")
 st.markdown("---")
 
+
+# --- THE VISUALIZATIONS ---
+
 viz_col1, viz_col2 = st.columns([2, 1])
 
 with viz_col1:
-    st.subheader("Optimized Trade Routing")
+    st.subheader("Simulated Trade Routing")
     
-    # 1. Calculate maximum volume for dynamic line thickness
     max_route_vol = max([vol for (u, v), vol in routing.items() if vol > 0], default=1)
-
-    # 2. Initialize the clean CartoDB map
     hub_lat, hub_lon = coords[hub]
     m = folium.Map(location=[hub_lat, hub_lon], zoom_start=4, tiles="CartoDB positron")
 
-    # 3. Draw the dynamic shipping lines
     for (u, v), vol in routing.items():
-        if vol > 0.1 and u != v:  # Only draw active external routes
+        if vol > 0.1 and u != v:  
             start_loc = coords[u]
             end_loc = coords[v]
             
@@ -221,12 +230,11 @@ with viz_col1:
             folium.PolyLine(
                 locations=[start_loc, end_loc],
                 weight=line_weight,
-                color="#004c6d",  # Professional corporate blue
+                color="#004c6d",  
                 opacity=0.7,
                 tooltip=f"<b>Route:</b> {u} ➔ {v}<br><b>Volume:</b> {vol:,.1f} Million Units"
             ).add_to(m)
 
-    # 4. Draw the Hub and Nodes
     for node, coord in coords.items():
         if node == hub:
             folium.Marker(
@@ -246,13 +254,11 @@ with viz_col1:
                     tooltip=f"<b>Target Market:</b> {node}<br><b>Inbound:</b> {received_vol:,.1f} Million Units"
                 ).add_to(m)
 
-    # 5. Render the map inside the Streamlit column
     st_folium(m, use_container_width=True, height=500)
 
 with viz_col2:
     st.subheader("5-Year Financial P&L")
     
-    # Upgraded Plotly Bar Chart to show the full financial picture
     fig_bar = px.bar(
         x=["Gross Rev", "OpEx", "CapEx", "Net Profit"], 
         y=[rev_val, ops_val, capex_val, profit_val], 
@@ -264,54 +270,5 @@ with viz_col2:
     st.plotly_chart(fig_bar, use_container_width=True)
 
     st.subheader("Route Volumes")
-    # Cleaned up the dataframe to only show active routes
     route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items() if v > 0.1])
     st.dataframe(route_df.style.format({"Volume": "{:,.1f}M"}), hide_index=True, use_container_width=True)
-
-with viz_col2:
-    st.subheader("Cost Breakdown")
-    fig_bar = px.bar(
-        x=["CapEx", "OpEx"], 
-        y=[capex_val, ops_val], 
-        labels={'x': '', 'y': 'Millions (USD)'},
-        color=["CapEx", "OpEx"], color_discrete_sequence=['#ef553b', '#636efa']
-    )
-    fig_bar.update_layout(showlegend=False)
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-    st.subheader("Route Volumes")
-    route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items()])
-    st.dataframe(route_df.style.format({"Volume": "{:,.0f}"}), hide_index=True)
-    st.markdown("---")
-# The Boardroom Toggle
-if st.toggle("Compare Alternative Hub Locations (What-If Analysis)"):
-    st.subheader("Regional Break-Even & Cost Comparison")
-    st.write("If political or strategic reasons forced the factory into an alternative country, here is the financial impact:")
-    
-    comparison_data = []
-    five_year_volume = target_volume * 5.0
-    
-    # Loop through every country and force the solver to put the factory there
-    for alt_node in nodes:
-        alt_stat, alt_hub, alt_prof, alt_rev, alt_cap, alt_ops, _ = run_milp(
-            nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-            roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, 
-            forced_hub=alt_node
-        )
-        
-        if alt_stat == 'Optimal':
-            alt_bep = (alt_cap + alt_ops) / five_year_volume
-            
-            comparison_data.append({
-                "Factory Location": alt_node,
-                "Break-Even Price": f"${alt_bep:.3f} / unit",
-                "5-Year Net Profit": f"${alt_prof:,.1f}M",
-                "Total CapEx": f"${alt_cap:,.1f}M",
-                "Total OpEx": f"${alt_ops:,.1f}M",
-                "Annual Volume": f"{target_volume:,.0f}M units",
-                "Status": "🏆 Optimal" if alt_node == hub else "Alternative"
-            })
-            
-    # Display the results as a clean table, sorted by Break-Even Price
-    comp_df = pd.DataFrame(comparison_data).sort_values(by="Break-Even Price")
-    st.dataframe(comp_df, hide_index=True, use_container_width=True)
