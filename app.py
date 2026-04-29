@@ -51,7 +51,7 @@ def load_base_parameters():
     return nodes, mfn_tariffs, hurdle_rates, friction_matrix, gdp_weights, coords
 
 # --- 3. MILP SOLVER ---
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, forced_hub=None):
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,friction_multiplier, forced_hub=None):
     model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
@@ -81,7 +81,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     total_capex = pulp.lpSum([y[i] * capex_cost * (1 + hurdle_rates[i]) for i in nodes])
     
     total_ops = pulp.lpSum([
-        x[(i, j, t)] * (production_cost_curve[t] * friction_matrix.get((i, j), 2.0) * (1 + effective_tariffs[(i, j)])) 
+        x[(i, j, t)] * (production_cost_curve[t] * (friction_matrix.get((i, j), 2.0) * friction_multiplier) * (1 + effective_tariffs[(i, j)])) 
         for i in nodes for j in nodes for t in years
     ])
     
@@ -141,6 +141,10 @@ with st.sidebar:
     st.header("Model Constraints")
     roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True)
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
+    friction_multiplier = st.slider(
+        "Logistics Friction (Border Delays & NTBs)", 
+        min_value=1.0, max_value=3.0, value=2.0, step=0.1,
+        help="1.0 = Ideal Green-Lane Transit. 3.0 = Massive delays, bribes, and spoilage.")
     st.markdown("---")
     st.header("Unit Economics")
     selling_price = st.slider("Wholesale Selling Price per pill ($)", min_value=0.05, max_value=0.50, value=0.21, step=0.01)
@@ -163,7 +167,8 @@ base_demand = {country: weight * target_volume for country, weight in gdp_weight
 # 1. Run the solver silently without forcing a hub to find the true mathematical optimum
 _, true_optimal_hub, _, _, _, _, _ = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, 
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,
+    friction_multiplier,
     forced_hub=None
 )
 
@@ -180,6 +185,7 @@ selected_hub = st.selectbox(
 status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
     roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,
+    friction_multiplier,
     forced_hub=selected_hub
 )
 
