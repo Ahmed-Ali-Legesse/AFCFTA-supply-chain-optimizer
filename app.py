@@ -85,25 +85,22 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
         for i in nodes for j in nodes for t in years
     ])
     
-    total_revenue = pulp.lpSum([
-        x[(i, j, t)] * selling_price * forex_liquidity
-        for i in nodes for j in nodes for t in years
+   total_revenue = pulp.lpSum([
+        x[(i, j, t)] * selling_price * forex_liquidity 
+        for i in nodes for j in nodes for t in ["Year_1", "Year_2", "Year_3", "Year_4", "Year_5"]
     ])
     
     model += total_revenue - total_capex - total_ops
 
     # --- 5-YEAR CONSTRAINTS ---
-    min_volume = target_volume * forex_liquidity
-    max_capacity = 5000.0 * forex_liquidity
+    effective_max_capacity = 5000.0 * forex_liquidity
 
     for t in years:
         for j in nodes:
             model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]
             
         for i in nodes:
-            model += pulp.lpSum([x[(i, j, t)] for j in nodes]) >= y[i] * min_volume
-            model += pulp.lpSum([x[(i, j, t)] for j in nodes]) <= y[i] * max_capacity
-            
+        model += pulp.lpSum([x[(i, j, t)] for j in nodes for t in years]) <= y[i] * effective_max_capacity * len(years)
     model += pulp.lpSum([y[i] for i in nodes]) == 1
     
     # 5. FORCE HUB FOR COMPARATIVE ANALYSIS
@@ -171,7 +168,7 @@ base_demand = {country: weight * target_volume for country, weight in gdp_weight
 # 1. Run the solver silently without forcing a hub to find the true mathematical optimum
 _, true_optimal_hub, _, _, _, _, _ = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,friction_multiplier,
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, friction_multiplier,
     forced_hub=None
 )
 
