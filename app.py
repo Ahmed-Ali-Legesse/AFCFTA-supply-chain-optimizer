@@ -40,18 +40,17 @@ def load_base_parameters():
     total_gdp = demand_subset['gdp_d'].astype(float).sum()
     
     # 3. Distribute the 250M units proportionally based on economic mass
-    base_demand = {}
+    gdp_weights = {}
     for _, row in demand_subset.iterrows():
         country = row['Country']
-        weight = float(row['gdp_d']) / total_gdp
-        base_demand[country] = weight * target_volume
+        gdp_weights[country] = float(row['gdp_d']) / total_gdp
     coords = {
         'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
         'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
         'Ethiopia': (9.1450, 40.4897)
     }
 
-    return nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords
+    return nodes, mfn_tariffs, hurdle_rates, friction_matrix,gdp_weights, coords
 
 # --- 3. MILP SOLVER ---
 # 1. Update the function signature
@@ -162,8 +161,14 @@ with st.sidebar:
     st.write("CapEx: $85M (WHO-GMP Compliant)")
     st.write("Minimum Volume: 405M Units")
     st.write("Target HS: 300490")
+    
+# 2. Load the cached baseline data (Notice we are unpacking 'gdp_weights' now)
+nodes, mfn_tariffs, hurdle_rates, friction_matrix, gdp_weights, coords = load_base_parameters()
 
-# Pass the new slider variables to the engine
+# 3. Dynamically apply the slider volume to the cached weights
+base_demand = {country: weight * target_volume for country, weight in gdp_weights.items()}
+
+#  Run the MILP engine
 status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
     roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume
