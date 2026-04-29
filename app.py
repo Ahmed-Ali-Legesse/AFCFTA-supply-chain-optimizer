@@ -137,7 +137,7 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
             if total_vol > 0:
                 routing[(i, j)] = total_vol / len(years)
 
-    return status, hub, profit_val, rev_val, capex_val, ops_val, routing routing
+    return status, hub, profit_val, rev_val, capex_val, ops_val, routing
 
 
 # --- 4. FRONTEND UI ---
