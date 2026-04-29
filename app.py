@@ -44,7 +44,7 @@ def load_base_parameters():
     for _, row in demand_subset.iterrows():
         country = row['Country']
         weight = float(row['gdp_d']) / total_gdp
-        base_demand[country] = weight * target_demand_millions
+        base_demand[country] = weight * target_volume
     coords = {
         'Kenya': (-1.2921, 36.8219), 'Tanzania': (-6.1659, 35.7516),
         'Uganda': (1.3733, 32.2903), 'Rwanda': (-1.9403, 29.8739),
@@ -55,7 +55,7 @@ def load_base_parameters():
 
 # --- 3. MILP SOLVER ---
 # 1. Update the function signature
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost):
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost,target_volume):
     model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
@@ -102,15 +102,15 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     # ... [Keep the rest of the constraint and return logic exactly the same] ...
 
     # --- 5-YEAR CONSTRAINTS ---
-    min_volume = 405.0 
+    min_volume = target_volume 
     max_capacity = 5000.0 
 
     for t in years:
         for j in nodes:
-            # 3. Market Cap: The factory MUST meet demand, but CANNOT exceed what the market absorbs
             model += pulp.lpSum([x[(i, j, t)] for i in nodes]) == base_demand[j]
             
         for i in nodes:
+            # The factory must produce the target volume
             model += pulp.lpSum([x[(i, j, t)] for j in nodes]) >= y[i] * min_volume
             model += pulp.lpSum([x[(i, j, t)] for j in nodes]) <= y[i] * max_capacity
             
@@ -153,9 +153,10 @@ with st.sidebar:
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
     st.markdown("---")
     st.header("Unit Economics")
-    # New sliders for the executives
+    # sliders for price,cost,vol
     selling_price = st.slider("Wholesale Selling Price ($)", min_value=0.05, max_value=0.50, value=0.14, step=0.01)
     base_prod_cost = st.slider("Target Production Cost ($)", min_value=0.03, max_value=0.20, value=0.07, step=0.01)
+    target_volume = st.slider("Target Annual Volume (Millions)", min_value=50.0, max_value=600.0, value=300.0, step=10.0)
     st.markdown("---")
     st.write("**Base Assumptions:**")
     st.write("CapEx: $85M (WHO-GMP Compliant)")
@@ -165,7 +166,7 @@ with st.sidebar:
 # Pass the new slider variables to the engine
 status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
-    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost
+    roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume
 )
 
 if hub == "No Solution" or status != 'Optimal':
