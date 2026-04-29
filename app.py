@@ -186,8 +186,10 @@ if hub == "No Solution" or status != 'Optimal':
 five_year_volume = target_volume * 5.0
 opt_bep = (capex_val + ops_val) / five_year_volume
 
-# Build out a 6-column dashboard to show the P&L
-ol1, col2, col3, col4, col5, col6 = st.columns(6)
+# ---> THIS IS THE LINE YOU ARE LIKELY MISSING <---
+col1, col2, col3, col4, col5, col6 = st.columns(6)
+
+# Now it knows where to put the data
 col1.metric(label="Optimal Hub", value=hub)
 col2.metric(label="Break-Even Price", value=f"${opt_bep:.3f}")
 col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M")
