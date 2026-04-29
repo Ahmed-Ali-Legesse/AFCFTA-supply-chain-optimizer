@@ -51,7 +51,7 @@ def load_base_parameters():
     return nodes, mfn_tariffs, hurdle_rates, friction_matrix, gdp_weights, coords
 
 # --- 3. MILP SOLVER ---
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,friction_multiplier, forced_hub=None):
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,friction_multiplier,forex_liquidity, forced_hub=None):
     model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
@@ -86,15 +86,15 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
     ])
     
     total_revenue = pulp.lpSum([
-        x[(i, j, t)] * selling_price 
+        x[(i, j, t)] * selling_price * forex_liquidity
         for i in nodes for j in nodes for t in years
     ])
     
     model += total_revenue - total_capex - total_ops
 
     # --- 5-YEAR CONSTRAINTS ---
-    min_volume = target_volume 
-    max_capacity = 5000.0 
+    min_volume = target_volume * forex_liquidity
+    max_capacity = 5000.0 * forex_liquidity
 
     for t in years:
         for j in nodes:
@@ -145,6 +145,10 @@ with st.sidebar:
         "Logistics Friction (Border Delays & NTBs)", 
         min_value=1.0, max_value=3.0, value=2.0, step=0.1,
         help="1.0 = Ideal Green-Lane Transit. 3.0 = Massive delays, bribes, and spoilage.")
+    forex_liquidity = st.slider(
+        "Forex Availability & Currency Stability", 
+        min_value=0.2, max_value=1.0, value=0.8, step=0.05,
+        help="Simulates ETB devaluation and USD shortage. 0.2 = Severe Devaluation/No USD access.")
     st.markdown("---")
     st.header("Unit Economics")
     selling_price = st.slider("Wholesale Selling Price per pill ($)", min_value=0.05, max_value=0.50, value=0.21, step=0.01)
