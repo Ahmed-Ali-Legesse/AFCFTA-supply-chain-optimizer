@@ -184,7 +184,7 @@ selected_hub = st.selectbox(
 status, hub, profit_val, rev_val, capex_val, ops_val, routing = run_milp(
     nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
     roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume,
-    friction_multiplier,
+    friction_multiplier,forex_liquidity,
     forced_hub=selected_hub
 )
 
