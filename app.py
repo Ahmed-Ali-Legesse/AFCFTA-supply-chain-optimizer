@@ -146,8 +146,7 @@ st.markdown("---")
 
 nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, coords = load_base_parameters()
 
-with st.sidebar:
-    st.header("Model Constraints")
+
   with st.sidebar:
     st.header("Model Constraints")
     roo_compliant = st.checkbox("AfCFTA Rules of Origin Met (>40% VA)", value=True)
