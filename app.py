@@ -195,17 +195,24 @@ if hub == "No Solution" or status != 'Optimal':
 five_year_volume = target_volume * 5.0
 hub_bep = (capex_val + ops_val) / five_year_volume
 
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-col1.metric(label="Simulated Hub", value=hub)
-col2.metric(label="Break-Even Price", value=f"${hub_bep:.3f}")
+# --- ROW 1: The Executive Summary ---
+row1_col1, row1_col2, row1_col3 = st.columns(3)
+row1_col1.metric(label="Simulated Hub", value=hub)
+row1_col2.metric(label="Break-Even Price", value=f"${hub_bep:.3f}")
 
 # Turn Profit red if it operates at a deficit
 delta_color = "normal" if profit_val > 0 else "inverse"
-col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M", delta="Deficit" if profit_val < 0 else None, delta_color=delta_color)
+row1_col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M", delta="Deficit" if profit_val < 0 else None, delta_color=delta_color)
 
-col4.metric(label="Gross Rev", value=f"${rev_val:,.1f}M")
-col5.metric(label="CapEx", value=f"${capex_val:,.1f}M")
-col6.metric(label="5-Yr OpEx", value=f"${ops_val:,.1f}M")
+# --- Add a small visual gap between the rows ---
+st.write("") 
+
+# --- ROW 2: The Financial Mechanics ---
+row2_col1, row2_col2, row2_col3 = st.columns(3)
+row2_col1.metric(label="Gross Rev", value=f"${rev_val:,.1f}M")
+row2_col2.metric(label="CapEx", value=f"${capex_val:,.1f}M")
+row2_col3.metric(label="5-Yr OpEx", value=f"${ops_val:,.1f}M")
+
 st.markdown("---")
 
 
