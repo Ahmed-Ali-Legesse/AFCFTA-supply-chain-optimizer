@@ -149,7 +149,6 @@ with st.sidebar:
     st.markdown("---")
     st.write("**Base Assumptions:**")
     st.write("CapEx: $85M (WHO-GMP Compliant)")
-    st.write("Minimum Volume: 405M Units")
     st.write("Target HS: 300490")
     
 # Load the cached baseline data 
@@ -210,7 +209,7 @@ st.write("")
 # --- ROW 2: The Financial Mechanics ---
 row2_col1, row2_col2, row2_col3 = st.columns(3)
 row2_col1.metric(label="Gross Rev", value=f"${rev_val:,.1f}M")
-row2_col2.metric(label="CapEx", value=f"${capex_val:,.1f}M")
+row2_col2.metric(label="Risk Adjusted CapEx", value=f"${capex_val:,.1f}M")
 row2_col3.metric(label="5-Yr OpEx", value=f"${ops_val:,.1f}M")
 
 st.markdown("---")
