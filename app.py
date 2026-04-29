@@ -143,7 +143,7 @@ with st.sidebar:
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
     st.markdown("---")
     st.header("Unit Economics")
-    selling_price = st.slider("Wholesale Selling Price ($)", min_value=0.05, max_value=0.50, value=0.14, step=0.01)
+    selling_price = st.slider("Wholesale Selling Price ($)", min_value=0.05, max_value=0.50, value=0.20, step=0.01)
     base_prod_cost = st.slider("Target Production Cost ($)", min_value=0.03, max_value=0.20, value=0.07, step=0.01)
     target_volume = st.slider("Target Annual Volume (Millions)", min_value=50.0, max_value=600.0, value=300.0, step=10.0)
     st.markdown("---")
