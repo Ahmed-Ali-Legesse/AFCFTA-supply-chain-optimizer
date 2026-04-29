@@ -139,7 +139,7 @@ with st.sidebar:
     afcfta_phase_down = st.slider("Tariff Phase-Down Rate", min_value=0.0, max_value=0.05, value=0.01, step=0.01)
     friction_multiplier = st.slider(
         "Logistics Friction (Border Delays & NTBs)", 
-        min_value=1.0, max_value=3.0, value=2.0, step=0.1,
+        min_value=1.0, max_value=3.0, value=1.5, step=0.1,
         help="1.0 = Ideal Green-Lane Transit. 3.0 = Massive delays, bribes, and spoilage.")
     forex_liquidity = st.slider(
         "Forex Availability & Currency Stability", 
