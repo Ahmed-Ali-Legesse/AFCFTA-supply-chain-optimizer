@@ -56,7 +56,7 @@ def load_base_parameters():
 
 # --- 3. MILP SOLVER ---
 # 1. Update the function signature
-def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost,target_volume):
+def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo_compliant, afcfta_phase_down, selling_price, base_prod_cost,target_volume,forced_hub=None):
     model = pulp.LpProblem("AfCFTA_Pharma_5Year_Profit", pulp.LpMaximize)
 
     capex_cost = 85.0 
@@ -114,6 +114,9 @@ def run_milp(nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, roo
             model += pulp.lpSum([x[(i, j, t)] for j in nodes]) <= y[i] * max_capacity
             
     model += pulp.lpSum([y[i] for i in nodes]) == 1
+    # 5. FORCE HUB FOR COMPARATIVE ANALYSIS
+    if forced_hub:
+        model += y[forced_hub] == 1
 
     model.solve(pulp.PULP_CBC_CMD(msg=False))
 
@@ -178,13 +181,19 @@ if hub == "No Solution" or status != 'Optimal':
     st.error(f"The solver could not find a valid supply chain network. Status: {status}")
     st.stop()
 
-# Build out a 5-column dashboard to show the P&L
-col1, col2, col3, col4, col5 = st.columns(5)
+# 2. Calculate the Optimal Hub's Break-Even Price 
+# Formula: (CapEx + 5-Year OpEx) / (Annual Volume * 5 Years)
+five_year_volume = target_volume * 5.0
+opt_bep = (capex_val + ops_val) / five_year_volume
+
+# Build out a 6-column dashboard to show the P&L
+ol1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric(label="Optimal Hub", value=hub)
-col2.metric(label="5-Year Net Profit", value=f"${profit_val:,.1f}M")
-col3.metric(label="5-Year Gross Rev", value=f"${rev_val:,.1f}M")
-col4.metric(label="Risk-Adj CapEx", value=f"${capex_val:,.1f}M")
-col5.metric(label="5-Year Cum. OpEx", value=f"${ops_val:,.1f}M")
+col2.metric(label="Break-Even Price", value=f"${opt_bep:.3f}")
+col3.metric(label="5-Yr Net Profit", value=f"${profit_val:,.1f}M")
+col4.metric(label="Gross Rev", value=f"${rev_val:,.1f}M")
+col5.metric(label="CapEx", value=f"${capex_val:,.1f}M")
+col6.metric(label="5-Yr OpEx", value=f"${ops_val:,.1f}M")
 st.markdown("---")
 
 viz_col1, viz_col2 = st.columns([2, 1])
@@ -271,3 +280,36 @@ with viz_col2:
     st.subheader("Route Volumes")
     route_df = pd.DataFrame([{"Origin": o, "Destination": d, "Volume": v} for (o, d), v in routing.items()])
     st.dataframe(route_df.style.format({"Volume": "{:,.0f}"}), hide_index=True)
+    st.markdown("---")
+# The Boardroom Toggle
+if st.toggle("Compare Alternative Hub Locations (What-If Analysis)"):
+    st.subheader("Regional Break-Even & Cost Comparison")
+    st.write("If political or strategic reasons forced the factory into an alternative country, here is the financial impact:")
+    
+    comparison_data = []
+    five_year_volume = target_volume * 5.0
+    
+    # Loop through every country and force the solver to put the factory there
+    for alt_node in nodes:
+        alt_stat, alt_hub, alt_prof, alt_rev, alt_cap, alt_ops, _ = run_milp(
+            nodes, mfn_tariffs, hurdle_rates, friction_matrix, base_demand, 
+            roo_compliant, afcfta_phase_down, selling_price, base_prod_cost, target_volume, 
+            forced_hub=alt_node
+        )
+        
+        if alt_stat == 'Optimal':
+            alt_bep = (alt_cap + alt_ops) / five_year_volume
+            
+            comparison_data.append({
+                "Factory Location": alt_node,
+                "Break-Even Price": f"${alt_bep:.3f} / unit",
+                "5-Year Net Profit": f"${alt_prof:,.1f}M",
+                "Total CapEx": f"${alt_cap:,.1f}M",
+                "Total OpEx": f"${alt_ops:,.1f}M",
+                "Annual Volume": f"{target_volume:,.0f}M units",
+                "Status": "🏆 Optimal" if alt_node == hub else "Alternative"
+            })
+            
+    # Display the results as a clean table, sorted by Break-Even Price
+    comp_df = pd.DataFrame(comparison_data).sort_values(by="Break-Even Price")
+    st.dataframe(comp_df, hide_index=True, use_container_width=True)
